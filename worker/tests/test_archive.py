@@ -44,13 +44,16 @@ def test_rejects_unsafe_paths(tmp_path, name):
     assert not (tmp_path / "escape.py").exists()
 
 
-def test_rejects_symlink_and_duplicate_paths(tmp_path):
+def test_skips_symlink_without_following_and_rejects_duplicate_paths(tmp_path):
     symlink = zipfile.ZipInfo("project/link")
     symlink.create_system = 3
     symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
     path = archive(tmp_path, [(symlink, b"../../secret")])
-    with pytest.raises(AnalysisError, match="symbolic link"):
-        index_archive(path, "project", ArchiveLimits())
+    nodes, warnings = index_archive(path, "project", ArchiveLimits())
+    link = next(node for node in nodes if node.path == "link")
+    assert link.content is None and link.parse_status == "skipped"
+    assert link.metadata["is_symlink"] is True
+    assert warnings == ["Symbolic link was not followed: link"]
 
     with pytest.warns(UserWarning, match="Duplicate name"):
         path = archive(tmp_path, [("project/file.py", b"one"), ("project/file.py", b"two")])

@@ -183,6 +183,7 @@ CREATE INDEX ix_diagram_views_run ON diagram_views(run_id, diagram_type);
 - `schema_foreign_keys.target_ref`는 원본 참조 대상 문자열입니다. 해결되지 않은 FK는 `target_column_id=NULL`, `target_ref`는 남깁니다.
 - 같은 시점의 여러 SQL 파일에 동일 테이블이 선언되면 무조건 합치지 않고 충돌 경고를 남깁니다.
 - `source_nodes.metadata`의 `config_facts`는 비밀번호/원본 설정 값이 아닌 허용 필드만 적재합니다.
+- 심볼릭 링크는 `parse_status='skipped'`, `metadata.is_symlink=true`로 기록하며 링크 대상은 읽거나 저장하지 않습니다.
 
 ## 4. 핵심 쓰기 트랜잭션
 

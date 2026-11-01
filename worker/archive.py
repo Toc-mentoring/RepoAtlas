@@ -77,8 +77,9 @@ def index_archive(archive_path: Path, repo_name: str, limits: ArchiveLimits,
                         any(":" in part for part in components) or entry.flag_bits & 1):
                     raise AnalysisError("UNSAFE_ARCHIVE", "Archive contains an unsafe path or encrypted entry")
                 mode = entry.external_attr >> 16
-                if entry.create_system == 3 and stat.S_ISLNK(mode):
-                    raise AnalysisError("UNSAFE_ARCHIVE", "Archive contains a symbolic link")
+                is_symlink = entry.create_system == 3 and stat.S_ISLNK(mode)
+                if is_symlink and entry.is_dir():
+                    raise AnalysisError("UNSAFE_ARCHIVE", "Archive contains a malformed symbolic link")
                 if root is None:
                     root = components[0]
                 if components[0] != root:
@@ -118,7 +119,11 @@ def index_archive(archive_path: Path, repo_name: str, limits: ArchiveLimits,
                 status = "unsupported" if suffix in _UNSUPPORTED else "not_applicable"
                 node = IndexedNode(relative, parent, parts[-1], "file", language, status,
                                    {"size_bytes": entry.file_size})
-                if language or parts[-1] in _CONFIG_NAMES:
+                if is_symlink:
+                    node.parse_status = "skipped"
+                    node.metadata["is_symlink"] = True
+                    warnings.append(f"Symbolic link was not followed: {relative}")
+                elif language or parts[-1] in _CONFIG_NAMES:
                     if entry.file_size > limits.max_source_file_bytes:
                         node.parse_status = "skipped"
                         warnings.append(f"File exceeds analysis size limit: {relative}")

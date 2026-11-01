@@ -118,7 +118,7 @@ stateDiagram-v2
 
 1. **URL 허용:** URL parser로 `https://github.com/owner/repo`의 정확한 형식만 수락; URL userinfo/포트/query/fragment/path traversal/기타 호스트 거절. Github API와 codeload redirect 호스트만 명시적으로 허용.
 2. **네트워크:** 백엔드는 GitHub 공식 API만 조회. 외부가 제공한 임의 Redirect로 연결하지 않고 최종 호스트/IP 검증; 사설·loopback·metadata IP 차단.
-3. **ZIP 압축 해제:** 압축 해제 전 entry 이름 canonicalize, `..`, 절대경로, symlink, 비정상 압축률과 파일 수 차단. 경로 루트 바깥 쓰기 금지.
+3. **ZIP 검사:** `..`, 절대경로, 비정상 압축률과 파일 수를 차단한다. ZIP을 파일 시스템에 풀지 않으며, symlink는 경로만 `skipped`로 색인하고 내용을 읽거나 따라가지 않은 채 경고한다.
 4. **자원 제한(초깃값):** ZIP 50MiB, 추출 총량 250MiB, 파일 10,000개, AST 대상 파일당 1MiB, 실행 180초, 동시 Worker 1. 수치는 로드 테스트 후 조정.
 5. **실행 격리:** 분석 대상 코드/스크립트를 실행하지 않음; `npm install`, `pip install`, `git hook`, `docker compose up` 등 금지. Worker는 rootless, read-only root FS, 제한된 tmp 디렉터리, CPU/memory/PID 제한, host socket·비밀 환경변수 접근 금지.
 6. **공개 서비스 남용 대응:** 인증 미구현 기간에는 서버에서 rate limit과 허용 크기/동시성 제한, 고정 공개 데모 저장소로 노출 범위를 제어.
