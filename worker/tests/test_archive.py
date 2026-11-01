@@ -94,3 +94,13 @@ def test_environment_can_override_large_repository_limits(monkeypatch):
     limits = ArchiveLimits.from_environment()
     assert limits.max_archive_bytes == 1048576 and limits.max_files == 123
     assert limits.max_extracted_bytes == 2 * 1024 * 1024 * 1024
+
+
+def test_default_limit_allows_more_than_10000_files(tmp_path):
+    path = tmp_path / "large.zip"
+    with zipfile.ZipFile(path, "w") as output:
+        for index in range(10_001):
+            output.writestr(f"project/files/file{index}.txt", b"")
+    nodes, warnings = index_archive(path, "project", ArchiveLimits())
+    assert sum(node.kind == "file" for node in nodes) == 10_001
+    assert not warnings
