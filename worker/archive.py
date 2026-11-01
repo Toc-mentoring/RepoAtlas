@@ -12,11 +12,11 @@ from worker.github import AnalysisError, LimitExceeded
 
 @dataclass(frozen=True)
 class ArchiveLimits:
-    max_archive_bytes: int = 50 * 1024 * 1024
-    max_extracted_bytes: int = 250 * 1024 * 1024
-    max_files: int = 10_000
+    max_archive_bytes: int = 512 * 1024 * 1024
+    max_extracted_bytes: int = 2 * 1024 * 1024 * 1024
+    max_files: int = 100_000
     max_source_file_bytes: int = 1024 * 1024
-    timeout_seconds: int = 180
+    timeout_seconds: int = 900
 
     @classmethod
     def from_environment(cls):

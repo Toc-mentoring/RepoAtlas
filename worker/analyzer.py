@@ -32,9 +32,14 @@ def analyze_archive(path: Path, repo: RepositoryAddress, sha: str, limits: Archi
     file_paths = {node.path for node in nodes if node.kind == "file"}
     try:
         with zipfile.ZipFile(path) as archive:
-            for node in nodes:
+            last_progress = 30
+            for index, node in enumerate(nodes):
                 if deadline is not None and time.monotonic() >= deadline:
                     raise LimitExceeded("Analysis time limit exceeded")
+                current_progress = 30 + 44 * (index + 1) // len(nodes)
+                if progress and current_progress >= last_progress + 5:
+                    progress("parsing", current_progress)
+                    last_progress = current_progress
                 if node.archive_entry is None:
                     continue
                 content = archive.read(node.archive_entry)

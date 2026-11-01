@@ -35,7 +35,10 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         repo = parse_repository_url(args.url)
-        result = run_analysis(repo.url, args.sha, ArchiveLimits.from_environment())
+        def show_progress(state, percent):
+            print(f"{state}: {percent}%", file=sys.stderr, flush=True)
+
+        result = run_analysis(repo.url, args.sha, ArchiveLimits.from_environment(), on_progress=show_progress)
         output = args.output or Path("analysis-output") / f"{repo.owner}-{repo.name}-{result['commit_sha'][:12]}.json"
         _write_json(output, result)
     except (AnalysisError, OSError, ValueError) as exc:

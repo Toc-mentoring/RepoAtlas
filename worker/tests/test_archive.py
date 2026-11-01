@@ -86,3 +86,11 @@ def test_index_does_not_load_source_file_contents(tmp_path, monkeypatch):
     nodes, warnings = index_archive(path, "project", ArchiveLimits())
     assert len(nodes) == 21 and not warnings
     assert all(not hasattr(node, "content") for node in nodes)
+
+
+def test_environment_can_override_large_repository_limits(monkeypatch):
+    monkeypatch.setenv("MAX_ARCHIVE_BYTES", "1048576")
+    monkeypatch.setenv("MAX_FILES", "123")
+    limits = ArchiveLimits.from_environment()
+    assert limits.max_archive_bytes == 1048576 and limits.max_files == 123
+    assert limits.max_extracted_bytes == 2 * 1024 * 1024 * 1024

@@ -22,7 +22,8 @@ def test_snapshot_contains_facts_without_source_contents(tmp_path):
     assert result["stats"]["tables"] == 1
     assert result["code_references"][0]["target_path"] == "src/helper.py"
     assert result["schema_tables"][0]["name"] == "users"
-    assert progress == [("parsing", 30), ("resolving", 75)]
+    assert progress[0] == ("parsing", 30) and progress[-1] == ("resolving", 75)
+    assert all(state == "parsing" for state, _ in progress[:-1])
     assert "dont-store-this" not in json.dumps(result)
     assert "content" not in json.dumps(result)
 
