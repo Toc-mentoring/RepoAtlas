@@ -52,3 +52,13 @@ def test_syntax_errors_do_not_invent_facts():
     assert parse_javascript("bad.ts", b"export const = ;")[0:2] == ([], [])
     assert parse_python("bad.py", b"def broken(:\n")[2]
     assert parse_javascript("bad.ts", b"export const = ;")[2]
+
+
+def test_same_line_parent_declarations_remain_distinguishable():
+    symbols, _, warnings = parse_javascript("same.js", b"function f(){function g(){}} function f(){function g(){}}")
+    assert not warnings
+    parents = [symbol for symbol in symbols if symbol.qualified_name == "f"]
+    children = [symbol for symbol in symbols if symbol.qualified_name == "f.g"]
+    assert len(parents) == len(children) == 2
+    assert [child.parent_start_column for child in children] == [parent.start_column for parent in parents]
+    assert parents[0].start_column != parents[1].start_column

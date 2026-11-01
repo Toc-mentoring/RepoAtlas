@@ -13,6 +13,8 @@ class Symbol:
     end_line: int
     parent_qualified_name: str | None = None
     parent_start_line: int | None = None
+    start_column: int = 0
+    parent_start_column: int | None = None
 
 
 @dataclass

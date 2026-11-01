@@ -70,6 +70,11 @@ def analyze_archive(path: Path, repo: RepositoryAddress, sha: str, limits: Archi
     if progress:
         progress("resolving", 75)
     resolve_references(references, {node.path for node in nodes if node.kind == "file"})
+    for table in tables.values():
+        for fk in table.foreign_keys:
+            target = tables.get((fk.target_schema, fk.target_table))
+            if target is None or fk.target_column is None or fk.target_column not in {c.name for c in target.columns}:
+                warnings.append(f"Unresolved foreign key: {table.schema_name}.{table.name}.{fk.source_column}")
     unresolved = sum(ref.resolution_status == "unresolved" for ref in references)
     unsupported = sum(node.parse_status == "unsupported" for node in nodes)
     if unresolved:

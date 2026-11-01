@@ -20,7 +20,8 @@ def parse_python(path: str, content: bytes) -> tuple[list[Symbol], list[Referenc
             parent = parents[-1] if parents else None
             qualified = f"{parent.qualified_name}.{node.name}" if parent else node.name
             symbol = Symbol(path, node.name, qualified, kind, node.lineno, node.end_lineno or node.lineno,
-                            parent.qualified_name if parent else None, parent.start_line if parent else None)
+                            parent.qualified_name if parent else None, parent.start_line if parent else None,
+                            node.col_offset, parent.start_column if parent else None)
             symbols.append(symbol)
             parents.append(symbol)
             self.generic_visit(node)

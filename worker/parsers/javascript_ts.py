@@ -65,7 +65,8 @@ def parse_javascript(path: str, content: bytes) -> tuple[list[Symbol], list[Refe
             parent = parents[-1] if parents else None
             qualified = f"{parent.qualified_name}.{name}" if parent else name
             symbol = Symbol(path, name, qualified, kind, node.start_point.row + 1, node.end_point.row + 1,
-                            parent.qualified_name if parent else None, parent.start_line if parent else None)
+                            parent.qualified_name if parent else None, parent.start_line if parent else None,
+                            node.start_point.column, parent.start_column if parent else None)
             symbols.append(symbol)
             parents.append(symbol)
         for child in node.named_children:

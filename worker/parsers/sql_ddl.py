@@ -63,7 +63,12 @@ def parse_sql(path: str, content: bytes) -> tuple[list[SchemaTableFact], list[st
                         name = definition.name if isinstance(definition, exp.Constraint) else ""
                         pending_fks.append((name or f"{table_name}_{'_'.join(sources)}_fkey", sources, item.args.get("reference")))
         foreign_keys = []
+        column_names = {column.name for column in columns}
+        seen_fks = set()
         for constraint_name, sources, reference in pending_fks:
+            if any(source not in column_names for source in sources):
+                warnings.append(f"Foreign key source column is missing: {path}")
+                continue
             target = reference.this if isinstance(reference, exp.Reference) else None
             target_table = target.this if isinstance(target, exp.Schema) else target
             if not isinstance(target_table, exp.Table) or not target_table.name:
@@ -75,6 +80,11 @@ def parse_sql(path: str, content: bytes) -> tuple[list[SchemaTableFact], list[st
                 warnings.append(f"Foreign key column count is inconsistent: {path}")
                 continue
             for index, source in enumerate(sources):
+                key = source, constraint_name, index + 1
+                if key in seen_fks:
+                    warnings.append(f"Duplicate foreign key declaration was ignored: {path}")
+                    continue
+                seen_fks.add(key)
                 target_column = target_columns[index] if target_columns else None
                 target_ref = f"{target_schema}.{target_table.name}" + (f"({target_column})" if target_column else "")
                 foreign_keys.append(SchemaForeignKeyFact(source, constraint_name, index + 1, target_schema,
