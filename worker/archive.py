@@ -95,8 +95,10 @@ def index_archive(archive_path: Path, repo_name: str, limits: ArchiveLimits,
                 if not entry.is_dir():
                     file_count += 1
                     total_size += entry.file_size
-                    if file_count > limits.max_files or total_size > limits.max_extracted_bytes:
-                        raise LimitExceeded("Archive exceeds the file count or extracted size limit")
+                    if file_count > limits.max_files:
+                        raise LimitExceeded(f"Archive exceeds the file count limit ({limits.max_files}; MAX_FILES)")
+                    if total_size > limits.max_extracted_bytes:
+                        raise LimitExceeded(f"Archive exceeds the extracted size limit ({limits.max_extracted_bytes} bytes; MAX_EXTRACTED_BYTES)")
                     if entry.file_size > 1_000_000 and entry.file_size > max(entry.compress_size, 1) * 200:
                         raise LimitExceeded("Archive entry has an unsafe compression ratio")
                 parts = relative.split("/")

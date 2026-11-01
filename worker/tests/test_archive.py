@@ -65,6 +65,8 @@ def test_resource_limits_and_large_source_warning(tmp_path):
     path = archive(tmp_path, [("project/a.py", b"123456"), ("project/b.py", b"abc")])
     with pytest.raises(LimitExceeded, match="file count"):
         index_archive(path, "project", ArchiveLimits(max_files=1))
+    with pytest.raises(LimitExceeded, match="MAX_EXTRACTED_BYTES"):
+        index_archive(path, "project", ArchiveLimits(max_extracted_bytes=5))
     nodes, warnings = index_archive(path, "project", ArchiveLimits(max_source_file_bytes=5))
     assert next(node for node in nodes if node.path == "a.py").parse_status == "skipped"
     assert warnings == ["File exceeds analysis size limit: a.py"]

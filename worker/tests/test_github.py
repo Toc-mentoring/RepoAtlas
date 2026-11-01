@@ -63,7 +63,7 @@ def test_rejects_private_dns_and_oversized_download(monkeypatch, tmp_path):
         with pytest.raises(AnalysisError, match="non-public address"):
             github.download_archive(repo, "a" * 40, tmp_path / "snapshot.zip", max_bytes=3)
         public_dns(monkeypatch)
-        with pytest.raises(LimitExceeded, match="size limit"):
+        with pytest.raises(LimitExceeded, match="MAX_ARCHIVE_BYTES"):
             github.download_archive(repo, "a" * 40, tmp_path / "snapshot.zip", max_bytes=3)
 
 

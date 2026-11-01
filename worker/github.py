@@ -82,6 +82,8 @@ class GitHubClient:
 
     def _get(self, url: str, *, max_bytes: int, destination: Path | None = None,
              deadline: float | None = None) -> bytes | None:
+        size_error = (f"Archive exceeds the size limit ({max_bytes} bytes; MAX_ARCHIVE_BYTES)" if destination else
+                      f"GitHub API response exceeds the size limit ({max_bytes} bytes)")
         for _ in range(4):
             if deadline is not None and time.monotonic() >= deadline:
                 raise LimitExceeded("Analysis time limit exceeded")
@@ -105,7 +107,7 @@ class GitHubClient:
                         raise AnalysisError("GITHUB_UNAVAILABLE", f"GitHub returned HTTP {response.status_code}")
                     length = response.headers.get("content-length")
                     if length and length.isdigit() and int(length) > max_bytes:
-                        raise LimitExceeded("GitHub response exceeds the size limit")
+                        raise LimitExceeded(size_error)
                     chunks = []
                     size = 0
                     output = destination.open("wb") if destination else None
@@ -115,7 +117,7 @@ class GitHubClient:
                                 raise LimitExceeded("Analysis time limit exceeded")
                             size += len(chunk)
                             if size > max_bytes:
-                                raise LimitExceeded("GitHub response exceeds the size limit")
+                                raise LimitExceeded(size_error)
                             if output:
                                 output.write(chunk)
                             else:

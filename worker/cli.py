@@ -40,6 +40,7 @@ def main(argv=None) -> int:
 
         result = run_analysis(repo.url, args.sha, ArchiveLimits.from_environment(), on_progress=show_progress)
         output = args.output or Path("analysis-output") / f"{repo.owner}-{repo.name}-{result['commit_sha'][:12]}.json"
+        print("writing JSON...", file=sys.stderr, flush=True)
         _write_json(output, result)
     except (AnalysisError, OSError, ValueError) as exc:
         code = exc.code if isinstance(exc, AnalysisError) else "OUTPUT_ERROR"

@@ -17,6 +17,8 @@ Python·JS·JSX·TS·TSX의 정적 선언과 import, PostgreSQL `CREATE TABLE`�
 
 선택 환경 변수는 `GITHUB_TOKEN`(공개 API 호출 제한 완화), `MAX_ARCHIVE_BYTES`, `MAX_EXTRACTED_BYTES`, `MAX_FILES`, `MAX_SOURCE_FILE_BYTES`, `ANALYSIS_TIMEOUT_SECONDS`입니다. 기본값은 각각 ZIP 512 MiB, 압축 해제 2 GiB, 파일 100,000개, 개별 분석 파일 1 MiB, 900초이며 제한은 양의 정수로 지정합니다. 더 큰 저장소는 환경 변수로 조정하되 디스크·메모리·실행 시간 여유를 먼저 확인합니다. 토큰은 Git이나 결과 JSON에 기록하지 않습니다.
 
+이전에 CMD 창에서 `set MAX_ARCHIVE_BYTES=...`로 제한을 설정했다면 해당 값이 기본값보다 우선합니다. `set MAX_ARCHIVE_BYTES=`로 기존 설정을 해제하면 새 기본값을 사용합니다.
+
 ## DB 작업 처리
 
 [DB 설치 및 migration](DATABASE_OPERATIONS.md)을 먼저 완료하고 동일한 `DATABASE_URL`을 Worker에 설정합니다. 아래 명령은 저장소 루트에서 실행합니다.
