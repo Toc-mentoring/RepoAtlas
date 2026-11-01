@@ -76,3 +76,9 @@ def test_unsupported_sql_does_not_leak_source_to_logs(caplog):
     tables, warnings = parse_sql("schema.sql", b"VACUUM secretvalue;")
     assert tables == [] and warnings == ["Unsupported SQL statement: schema.sql"]
     assert "secretvalue" not in caplog.text
+
+
+def test_explicit_null_and_not_null_are_distinguished():
+    tables, warnings = parse_sql("schema.sql", b"CREATE TABLE users (nickname TEXT NULL, email TEXT NOT NULL);")
+    assert not warnings
+    assert [(column.name, column.is_nullable) for column in tables[0].columns] == [("nickname", True), ("email", False)]

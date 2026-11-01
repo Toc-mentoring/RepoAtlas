@@ -60,7 +60,10 @@ def parse_sql(path: str, content: bytes) -> tuple[list[SchemaTableFact], list[st
                     continue
                 constraints = definition.args.get("constraints") or []
                 is_primary = name in primary or any(isinstance(c.args.get("kind"), exp.PrimaryKeyColumnConstraint) for c in constraints)
-                not_null = is_primary or any(isinstance(c.args.get("kind"), exp.NotNullColumnConstraint) for c in constraints)
+                not_null = is_primary or any(
+                    isinstance(c.args.get("kind"), exp.NotNullColumnConstraint) and
+                    not c.args["kind"].args.get("allow_null", False) for c in constraints
+                )
                 columns.append(SchemaColumnFact(name, datatype.sql(dialect="postgres"), len(columns) + 1, is_primary, not not_null))
                 for constraint in constraints:
                     reference = constraint.args.get("kind")
