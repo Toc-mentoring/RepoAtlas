@@ -2,6 +2,7 @@
 
 import tempfile
 import time
+from contextlib import ExitStack
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable
@@ -108,12 +109,13 @@ def _public_node(node: IndexedNode) -> dict:
 
 
 def analyze_repository(repo: RepositoryAddress, sha: str, limits: ArchiveLimits,
-                       *, progress: Progress | None = None) -> dict:
+                       *, progress: Progress | None = None, workspace: Path | None = None) -> dict:
     deadline = time.monotonic() + limits.timeout_seconds
     github = GitHubClient()
     try:
-        with tempfile.TemporaryDirectory(prefix="repoatlas-") as tmp:
-            archive = Path(tmp) / "snapshot.zip"
+        with ExitStack() as stack:
+            directory = workspace or Path(stack.enter_context(tempfile.TemporaryDirectory(prefix="repoatlas-")))
+            archive = directory / "snapshot.zip"
             if progress:
                 progress("fetching", 5)
             github.download_archive(repo, sha, archive, max_bytes=limits.max_archive_bytes, deadline=deadline)

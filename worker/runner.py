@@ -31,7 +31,8 @@ def _child_analysis(url: str, sha: str | None, limits_data: dict, result_path: s
                 github.close()
         else:
             sha = validate_sha(sha)
-        result = analyze_repository(repo, sha, limits, progress=lambda state, progress: channel.send((state, progress)))
+        result = analyze_repository(repo, sha, limits, workspace=Path(result_path).parent,
+                                    progress=lambda state, progress: channel.send((state, progress)))
         payload = {"result": result}
     except AnalysisError as exc:
         payload = {"error": {"code": exc.code, "message": str(exc)}}
