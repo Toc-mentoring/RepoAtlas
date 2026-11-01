@@ -74,7 +74,7 @@ def test_same_line_symbol_parents_and_unresolved_foreign_keys(worker_db, tmp_pat
     claim, result = prepare(worker_db, tmp_path)
     result["source_nodes"].append({"path": "same.js", "parent_path": ".", "name": "same.js", "kind": "file",
                                    "language": "javascript", "parse_status": "parsed", "metadata": {}})
-    symbols, _, _ = parse_javascript("same.js", b"function f(){function g(){}} function f(){function g(){}}")
+    symbols, _, _ = parse_javascript("same.js", b"button.onclick = () => { function f(){function g(){}} function f(){function g(){}} }")
     result["code_symbols"].extend(asdict(symbol) for symbol in symbols)
     result["stats"]["file_count"] += 1
     result["stats"]["symbols"] += len(symbols)
@@ -90,6 +90,8 @@ def test_same_line_symbol_parents_and_unresolved_foreign_keys(worker_db, tmp_pat
         saved = session.scalars(select(CodeSymbol).where(CodeSymbol.file_id == same_id).order_by(CodeSymbol.id)).all()
         parents = [item for item in saved if item.name == "f"]
         children = [item for item in saved if item.name == "g"]
+        callback = next(item for item in saved if item.name.startswith("<anonymous@"))
+        assert [parent.parent_symbol_id for parent in parents] == [callback.id, callback.id]
         assert [child.parent_symbol_id for child in children] == [parent.id for parent in parents]
         missing = session.scalar(select(SchemaForeignKey).where(SchemaForeignKey.constraint_name == "fk_missing"))
         assert missing.target_column_id is None and missing.target_ref == "public.missing(id)"
