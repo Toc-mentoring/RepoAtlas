@@ -12,6 +12,16 @@ def _python_candidates(base: str, paths: set[str]) -> set[str]:
     return {candidate for candidate in candidates if candidate in paths}
 
 
+def _blocked_by_module(base: str, root: str, paths: set[str]) -> bool:
+    parts = posixpath.relpath(base, root).split("/")
+    prefix = root
+    for part in parts[:-1]:
+        prefix = posixpath.normpath(posixpath.join(prefix, part))
+        if prefix + ".py" in paths and posixpath.join(prefix, "__init__.py") not in paths:
+            return True
+    return False
+
+
 def _python_target(ref: Reference, paths: set[str]) -> tuple[str | None, str]:
     module = ref.module.replace(".", "/")
     if ref.level:
@@ -23,12 +33,14 @@ def _python_target(ref: Reference, paths: set[str]) -> tuple[str | None, str]:
         base = posixpath.normpath(posixpath.join(str(parent), module))
         if base == ".." or base.startswith("../"):
             return None, "unresolved"
-        roots = [base]
+        roots = [(base, str(parent))]
     else:
-        roots = [module, posixpath.join("src", module)] if module else []
+        roots = [(module, "."), (posixpath.join("src", module), "src")] if module else []
 
     candidates = set()
-    for base in roots:
+    for base, root in roots:
+        if _blocked_by_module(base, root, paths):
+            continue
         base_candidates = _python_candidates(base, paths)
         module_file = posixpath.normpath(base + ".py")
         if ref.level and not ref.module:
