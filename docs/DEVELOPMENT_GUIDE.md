@@ -6,8 +6,8 @@
 
 1. [README](../README.md)에서 사용자 목표, 5종 다이어그램, Must/Should를 확인.
 2. [API_SPEC](API_SPEC.md)의 12개 업무용 API 및 GraphDTO 계약을 팀에서 합의.
-3. [DB_SCHEMA](DB_SCHEMA.md)의 9개 테이블과 Alembic migration 작성.
-4. 분석팀은 [CODE_ANALYSIS](CODE_ANALYSIS.md)의 fixture부터 만들고 파서/Resolver 구현.
+3. [DATABASE_OPERATIONS](DATABASE_OPERATIONS.md)의 명령으로 9개 테이블 migration 적용.
+4. [WORKER](WORKER.md)의 명령으로 분석 Worker 또는 DB 없는 JSON 분석 실행.
 5. 프론트팀은 mock GraphDTO를 이용하여 그래프 화면 선개발.
 6. Day 7/14/20 통합 점검. Should 범위는 Must 완료 후 착수.
 
@@ -27,7 +27,6 @@ RepoAtlas/
 │   ├── PROJECT_PLAN.md
 │   └── DEVELOPMENT_GUIDE.md
 ├── backend/
-│   ├── pyproject.toml
 │   ├── alembic.ini
 │   ├── alembic/versions/
 │   ├── app/
@@ -43,9 +42,12 @@ RepoAtlas/
 │   └── tests/
 ├── worker/
 │   ├── main.py                     # PostgreSQL queue polling
-│   ├── fetcher.py                  # commit-pinned archive
-│   ├── extractor.py                # safe ZIP verification
-│   ├── indexer.py                  # all directories/files
+│   ├── github.py                   # commit-pinned archive
+│   ├── archive.py                  # safe ZIP validation and index
+│   ├── analyzer.py                 # analysis pipeline
+│   ├── runner.py                   # child-process time limit
+│   ├── cli.py                      # database-free JSON output
+│   ├── jobs.py                     # PostgreSQL queue and recovery
 │   ├── parsers/
 │   │   ├── python_ast.py
 │   │   ├── javascript_ts.py
@@ -66,12 +68,16 @@ RepoAtlas/
 ├── infra/
 │   └── nginx.conf
 ├── compose.yaml
+├── pyproject.toml
+├── uv.lock
 └── .env.example
 ```
 
-**설계 문서 패키지에는 위의 실제 소스코드가 아직 존재하지 않습니다.** 운영팀은 개발 이후 README에 실제 실행 명령을 업데이트합니다.
+DB 모델·migration과 Worker는 구현되어 있습니다. 위 구조 중 FastAPI, 프론트엔드, Compose/Nginx 관련 파일은 개발 목표입니다.
 
 ## 3. 환경 변수 계약 (.env.example 설계)
+
+아래 목록에는 향후 API·배포용 설정도 포함됩니다. 현재 Worker가 읽는 변수는 [WORKER](WORKER.md)에 명시되어 있으며, `APP_ENV`, `API_PREFIX`, `WORKER_CONCURRENCY`, `ALLOWED_GITHUB_HOST`는 아직 적용되지 않습니다.
 
 ```dotenv
 DATABASE_URL=postgresql+psycopg://repoatlas:change-me@db:5432/repoatlas
@@ -91,24 +97,16 @@ ALLOWED_GITHUB_HOST=github.com
 - `DATABASE_URL`의 `change-me`는 반드시 변경. 배포에서는 DB/Worker 네트워크를 외부에 공개하지 않음.
 - Analyzer가 참조하는 타 프로젝트의 `.env`는 **내용을 저장하거나 출력하지 않음**.
 
-## 4. 로컬 개발 시작 절차 (구현 후 수행)
+## 4. 로컬 개발 시작 절차
 
 ```bash
-# Python 패키지와 npm 패키지 버전은 Day 1에 확정·lock
-cp .env.example .env
-# 필요한 서비스 DB 시작
-# docker compose up -d db
-# DB migration
-# cd backend && alembic upgrade head
-# API 개발 서버
-# uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-# 프론트 개발 서버
-# cd frontend && npm ci && npm run dev
-# Worker 별도 프로세스
-# python -m worker.main
+uv sync --locked
+export DATABASE_URL='postgresql+psycopg://repoatlas:비밀번호@localhost:5432/repoatlas'
+uv run alembic -c backend/alembic.ini upgrade head
+uv run python -m worker.main
 ```
 
-위 명령은 **예정된 디렉터리와 패키지가 개발된 이후** 유효합니다. 실제 Dockerfile/Compose/CI는 Day 1~2에 작성·검증해야 하며, 현재 ZIP은 실행 가능한 애플리케이션을 제공하지 않습니다.
+PostgreSQL은 별도로 준비하고 `.env`의 값은 프로세스 환경에 직접 주입합니다. DB 없는 JSON 분석은 [WORKER](WORKER.md)를 참고합니다. FastAPI, 프론트엔드, Docker Compose는 아직 실행할 수 없습니다.
 
 ## 5. 프론트↔백엔드 데이터 흐름
 

@@ -2,7 +2,7 @@
 
 > **GitHub 저장소의 코드를 읽고, 유지보수 인수인계에 필요한 구조도를 선택해 생성하는 웹서비스**
 >
-> 상태: **설계 완료 / 구현 전** · 목표: **21일 MVP** · 기준: **2026-11-01**
+> 상태: **Worker·DB 구현 / API·화면 구현 전** · 목표: **21일 MVP**
 
 ## 5분 소개
 
@@ -75,33 +75,30 @@ flowchart LR
   API -->|선택한 그래프 투영| FE
 ```
 
-**중요:** 수집한 저장소의 코드를 실행하지 않습니다. 분석은 격리된 Worker에서 크기/시간/메모리를 제한합니다.
+**중요:** 수집한 저장소의 코드를 실행하지 않습니다. Worker는 크기·시간 제한을 적용하며, 운영 시 별도 프로세스 격리와 메모리 제한이 필요합니다.
 
 ## 저장소 디렉터리 구조 (개발 목표)
 
 ```text
 repoatlas/
 ├── frontend/                 # React SPA (구현 예정)
-├── backend/                  # FastAPI (구현 예정)
-├── worker/                   # 독립 분석 프로세스 (구현 예정)
+├── backend/                  # DB 모델·migration 구현; FastAPI 구현 예정
+├── worker/                   # 독립 분석 프로세스 및 JSON 테스트 명령
 ├── infra/                    # Compose/Nginx (구현 예정)
 ├── README.md
 └── docs/                     # 설계 문서
 ```
 
-> 현재 저장소에는 **설계 문서와 빈 개발 폴더**가 있습니다. 폴더는 `.gitkeep`으로 유지하며, 실행 가능한 서비스 코드는 아직 포함하지 않습니다.
+> Worker와 DB 모델·migration은 실행할 수 있습니다. FastAPI, 프론트엔드, Compose 배포는 아직 구현되지 않았습니다.
 
-## 실행 방식 (개발 착수 시 목표)
+## Worker 실행
 
 ```bash
-# 소스코드 구현 및 .env 설정 완료 후 사용 예정
-cp .env.example .env
-docker compose up --build -d
-# 웹: http://localhost:3000
-# API 문서: http://localhost:8000/docs (개발 환경)
+uv sync --locked
+uv run python -m worker.cli https://github.com/psf/requests --output analysis-output/requests.json
 ```
 
-명령어는 미래 구현의 목표 계약입니다. 현재 저장소는 실행되지 않습니다.
+위 명령은 DB 없이 분석 결과를 JSON으로 저장합니다. DB 생성·migration과 작업 처리 명령은 [DB 운영 가이드](docs/DATABASE_OPERATIONS.md), [Worker 실행 가이드](docs/WORKER.md)를 참고합니다.
 
 ## 21일 일정
 
