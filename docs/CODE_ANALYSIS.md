@@ -57,6 +57,8 @@ class ReferenceDTO:
 
 `parse_status`: `not_applicable`(디렉터리/비코드 파일), `unsupported`(미지원 소스), `parsed`, `failed`, `skipped`(크기 제한 등).
 
+JS/TS의 이름 없는 콜백은 `<anonymous@줄:열>`로 표시하여 내부에 선언된 함수의 부모 범위를 보존합니다. 이 관계는 코드의 포함 관계이며 함수 호출 관계는 아닙니다.
+
 ### Python 해석 예시
 
 ```text

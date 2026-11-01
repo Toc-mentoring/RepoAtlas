@@ -61,9 +61,16 @@ def parse_javascript(path: str, content: bytes) -> tuple[list[Symbol], list[Refe
             if value is not None and value.type in ("arrow_function", "function_expression", "generator_function"):
                 kind = "function"
         name_node = node.child_by_field_name("name")
+        anonymous = False
+        if node.type in ("arrow_function", "function_expression", "generator_function"):
+            parent_node = node.parent
+            assigned_name = parent_node.child_by_field_name("name") if parent_node and parent_node.type == "variable_declarator" else None
+            if assigned_name is None or assigned_name.type != "identifier":
+                kind = "function"
+                anonymous = name_node is None
         symbol = None
-        if kind and name_node is not None and name_node.type in ("identifier", "type_identifier", "property_identifier", "private_property_identifier"):
-            name = text(name_node)
+        if kind and (anonymous or name_node is not None and name_node.type in ("identifier", "type_identifier", "property_identifier", "private_property_identifier")):
+            name = f"<anonymous@{node.start_point.row + 1}:{node.start_point.column}>" if anonymous else text(name_node)
             parent = parents[-1] if parents else None
             qualified = f"{parent.qualified_name}.{name}" if parent else name
             symbol = Symbol(path, name, qualified, kind, node.start_point.row + 1, node.end_point.row + 1,

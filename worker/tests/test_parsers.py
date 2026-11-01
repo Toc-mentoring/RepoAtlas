@@ -69,3 +69,15 @@ def test_escaped_static_import_is_not_reported_as_dynamic():
     resolve_references(refs, {"main.js", "ab.js"})
     assert not warnings
     assert refs[0].mode == "static" and refs[0].resolution_status == "unresolved"
+
+
+def test_named_function_inside_anonymous_callback_has_parent():
+    source = b"button.addEventListener('click', async () => {\n  const checkProgress = () => 1;\n});\n"
+    symbols, _, warnings = parse_javascript("main.js", source)
+    assert not warnings
+    callback = next(symbol for symbol in symbols if symbol.name.startswith("<anonymous@"))
+    child = next(symbol for symbol in symbols if symbol.name == "checkProgress")
+    assert callback.kind == "function" and callback.start_line == 1
+    assert child.parent_qualified_name == callback.qualified_name
+    assert child.parent_start_line == callback.start_line
+    assert child.parent_start_column == callback.start_column
