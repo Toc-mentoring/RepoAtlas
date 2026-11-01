@@ -27,3 +27,32 @@ class Reference:
     level: int = 0
     target_path: str | None = None
     resolution_status: str = "unresolved"
+
+
+@dataclass
+class SchemaColumnFact:
+    name: str
+    data_type: str
+    ordinal_position: int
+    is_primary: bool
+    is_nullable: bool
+
+
+@dataclass
+class SchemaForeignKeyFact:
+    source_column: str
+    constraint_name: str
+    ordinal_position: int
+    target_schema: str
+    target_table: str
+    target_column: str | None
+    target_ref: str
+
+
+@dataclass
+class SchemaTableFact:
+    source_path: str
+    schema_name: str
+    name: str
+    columns: list[SchemaColumnFact]
+    foreign_keys: list[SchemaForeignKeyFact]
