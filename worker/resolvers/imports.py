@@ -27,17 +27,18 @@ def _python_target(ref: Reference, paths: set[str]) -> tuple[str | None, str]:
     else:
         roots = [module, posixpath.join("src", module)] if module else []
 
-    if ref.member and ref.member != "*":
-        submodules = set()
-        for base in roots:
-            submodules.update(_python_candidates(posixpath.join(base, ref.member), paths))
-        if len(submodules) == 1:
-            return next(iter(submodules)), "resolved"
-        if len(submodules) > 1:
-            return None, "unresolved"
     candidates = set()
     for base in roots:
-        candidates.update(_python_candidates(base, paths))
+        base_candidates = _python_candidates(base, paths)
+        module_file = posixpath.normpath(base + ".py")
+        if ref.level and not ref.module:
+            base_candidates.discard(module_file)
+        candidates.update(base_candidates)
+        if ref.member and ref.member != "*":
+            # A plain module wins over a same-named directory. A package can
+            # export an attribute or a submodule, so retain both candidates.
+            if module_file not in base_candidates or len(base_candidates) > 1:
+                candidates.update(_python_candidates(posixpath.join(base, ref.member), paths))
     if len(candidates) == 1:
         return next(iter(candidates)), "resolved"
     if len(candidates) > 1:
