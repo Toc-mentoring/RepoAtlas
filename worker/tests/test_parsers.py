@@ -62,3 +62,10 @@ def test_same_line_parent_declarations_remain_distinguishable():
     assert len(parents) == len(children) == 2
     assert [child.parent_start_column for child in children] == [parent.start_column for parent in parents]
     assert parents[0].start_column != parents[1].start_column
+
+
+def test_escaped_static_import_is_not_reported_as_dynamic():
+    _, refs, warnings = parse_javascript("main.js", br"import './a\u0062';")
+    resolve_references(refs, {"main.js", "ab.js"})
+    assert not warnings
+    assert refs[0].mode == "static" and refs[0].resolution_status == "unresolved"

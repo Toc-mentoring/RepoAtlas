@@ -39,16 +39,18 @@ def parse_javascript(path: str, content: bytes) -> tuple[list[Symbol], list[Refe
             source = node.child_by_field_name("source")
             if source is not None:
                 value = string_value(source)
-                references.append(Reference(path, value or "<escaped import>", node.start_point.row + 1,
-                                            "javascript", mode="static" if value else "dynamic"))
+                raw = value if value is not None else text(source)[1:-1]
+                references.append(Reference(path, raw, node.start_point.row + 1, "javascript"))
         elif node.type == "call_expression":
             function = node.child_by_field_name("function")
             arguments = node.child_by_field_name("arguments")
             if function is not None and text(function) in ("require", "import"):
                 argument = arguments.named_children[0] if arguments and arguments.named_children else None
                 value = string_value(argument)
-                mode = "static" if text(function) == "require" and value else "dynamic"
-                references.append(Reference(path, value or "<dynamic>", node.start_point.row + 1, "javascript", mode=mode))
+                static_require = text(function) == "require" and argument is not None and argument.type == "string"
+                raw = value if value is not None else text(argument)[1:-1] if static_require else "<dynamic>"
+                references.append(Reference(path, raw, node.start_point.row + 1, "javascript",
+                                            mode="static" if static_require else "dynamic"))
 
         kind = {"function_declaration": "function", "generator_function_declaration": "function",
                 "class_declaration": "class", "interface_declaration": "interface"}.get(node.type)

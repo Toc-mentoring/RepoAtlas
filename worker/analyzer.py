@@ -91,9 +91,12 @@ def analyze_archive(path: Path, repo: RepositoryAddress, sha: str, limits: Archi
             if target is None or fk.target_column is None or fk.target_column not in {c.name for c in target.columns}:
                 warnings.append(f"Unresolved foreign key: {table.schema_name}.{table.name}.{fk.source_column}")
     unresolved = sum(ref["resolution_status"] == "unresolved" for ref in references)
+    dynamic = sum(ref["resolution_status"] == "unresolved" and ref["mode"] == "dynamic" for ref in references)
     unsupported = sum(node.parse_status == "unsupported" for node in nodes)
-    if unresolved:
-        warnings.append(f"Unresolved or dynamic imports: {unresolved}")
+    if unresolved - dynamic:
+        warnings.append(f"Unresolved static imports: {unresolved - dynamic}")
+    if dynamic:
+        warnings.append(f"Dynamic imports not resolved: {dynamic}")
     if unsupported:
         warnings.append(f"Unsupported source files were indexed but not parsed: {unsupported}")
     warnings = list(dict.fromkeys(warnings))

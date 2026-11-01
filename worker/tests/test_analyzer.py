@@ -67,3 +67,13 @@ def test_lfs_pointer_is_skipped_during_file_analysis(tmp_path):
     assert next(node for node in result["source_nodes"] if node["path"] == "file.py")["parse_status"] == "skipped"
     assert result["code_symbols"] == []
     assert result["warnings"] == ["Git LFS content is unavailable: file.py"]
+
+
+def test_unresolved_static_and_dynamic_import_warnings_are_distinct(tmp_path):
+    path = tmp_path / "repo.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("repo-sha/main.py", "import unknown_package\n__import__('plugin')\n")
+    result = analyze_archive(path, parse_repository_url("https://github.com/example/repo"), "a" * 40, ArchiveLimits())
+    assert result["stats"]["unresolved_imports"] == 2
+    assert "Unresolved static imports: 1" in result["warnings"]
+    assert "Dynamic imports not resolved: 1" in result["warnings"]

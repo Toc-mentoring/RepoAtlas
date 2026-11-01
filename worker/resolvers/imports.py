@@ -62,6 +62,8 @@ def _python_target(ref: Reference, paths: set[str]) -> tuple[str | None, str]:
 
 def _javascript_target(ref: Reference, paths: set[str]) -> tuple[str | None, str]:
     raw = ref.raw_ref
+    if not raw or "\\" in raw:
+        return None, "unresolved"
     if not raw.startswith(("./", "../")):
         return None, "unresolved" if raw.startswith(("@/", "/", "#")) else "external"
     base = posixpath.normpath(posixpath.join(posixpath.dirname(ref.source_path), raw))
