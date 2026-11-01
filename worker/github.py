@@ -138,8 +138,10 @@ class GitHubClient:
             if metadata.get("private") is not False:
                 raise AnalysisError("GITHUB_NOT_PUBLIC", "Only public GitHub repositories are supported")
             branch = metadata["default_branch"]
-            commit = json.loads(self._get(f"{prefix}/commits/{quote(branch, safe='')}", max_bytes=2_000_000, deadline=deadline))
-            return validate_sha(commit["sha"].lower())
+            ref = json.loads(self._get(f"{prefix}/git/ref/heads/{quote(branch, safe='/')}", max_bytes=2_000_000, deadline=deadline))
+            if ref["object"]["type"] != "commit":
+                raise ValueError("Default branch does not reference a commit")
+            return validate_sha(ref["object"]["sha"].lower())
         except (KeyError, TypeError, ValueError) as exc:
             raise AnalysisError("GITHUB_UNAVAILABLE", "GitHub returned invalid repository metadata") from exc
 

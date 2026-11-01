@@ -31,7 +31,7 @@ def test_resolves_commit_and_downloads_sha_pinned_archive(monkeypatch, tmp_path)
         if request.url.host == "api.github.com" and request.url.path == "/repos/example/repo":
             return httpx.Response(200, json={"private": False, "default_branch": "main"})
         if request.url.host == "api.github.com":
-            return httpx.Response(200, json={"sha": sha})
+            return httpx.Response(200, json={"object": {"type": "commit", "sha": sha}})
         assert request.url.host == "codeload.github.com"
         assert "authorization" not in request.headers
         return httpx.Response(200, content=b"archive")
@@ -40,6 +40,7 @@ def test_resolves_commit_and_downloads_sha_pinned_archive(monkeypatch, tmp_path)
         github = GitHubClient(token="secret", client=transport)
         repo = parse_repository_url("https://github.com/example/repo")
         assert github.resolve_default_commit(repo) == sha
+        assert requested[1] == "https://api.github.com/repos/example/repo/git/ref/heads/main"
         destination = tmp_path / "snapshot.zip"
         github.download_archive(repo, sha, destination, max_bytes=20)
         assert destination.read_bytes() == b"archive"
@@ -64,3 +65,14 @@ def test_rejects_private_dns_and_oversized_download(monkeypatch, tmp_path):
         public_dns(monkeypatch)
         with pytest.raises(LimitExceeded, match="size limit"):
             github.download_archive(repo, "a" * 40, tmp_path / "snapshot.zip", max_bytes=3)
+
+
+def test_branch_names_with_slashes_resolve_using_git_ref(monkeypatch):
+    public_dns(monkeypatch)
+    def handle(request):
+        if request.url.path == "/repos/example/repo":
+            return httpx.Response(200, json={"private": False, "default_branch": "release/stable"})
+        assert request.url.path == "/repos/example/repo/git/ref/heads/release/stable"
+        return httpx.Response(200, json={"object": {"type": "commit", "sha": "b" * 40}})
+    with httpx.Client(transport=httpx.MockTransport(handle)) as transport:
+        assert GitHubClient(client=transport).resolve_default_commit(parse_repository_url("https://github.com/example/repo")) == "b" * 40
