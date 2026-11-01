@@ -70,3 +70,9 @@ def test_unsafe_yaml_is_not_executed_and_fastapi_facts_have_lines():
         {"kind": "fastapi_app", "line": 2, "certainty": "confirmed"},
         {"kind": "fastapi_router", "line": 3, "certainty": "inferred"},
     ]
+
+
+def test_unsupported_sql_does_not_leak_source_to_logs(caplog):
+    tables, warnings = parse_sql("schema.sql", b"VACUUM secretvalue;")
+    assert tables == [] and warnings == ["Unsupported SQL statement: schema.sql"]
+    assert "secretvalue" not in caplog.text

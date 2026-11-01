@@ -2,19 +2,30 @@
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.postgres import Postgres
 
 from worker.entities import SchemaColumnFact, SchemaForeignKeyFact, SchemaTableFact
 
 
+class _PrivatePostgres(Postgres):
+    class Parser(Postgres.Parser):
+        def _warn_unsupported(self):
+            # SQLGlot's default warning includes raw SQL, which can contain credentials.
+            pass
+
+
 def parse_sql(path: str, content: bytes) -> tuple[list[SchemaTableFact], list[str]]:
     try:
-        statements = sqlglot.parse(content.decode("utf-8"), read="postgres", error_level=sqlglot.ErrorLevel.RAISE)
+        statements = sqlglot.parse(content.decode("utf-8"), read=_PrivatePostgres(), error_level=sqlglot.ErrorLevel.RAISE)
     except (UnicodeDecodeError, sqlglot.errors.ParseError, ValueError, RecursionError):
         return [], [f"PostgreSQL DDL parse error: {path}"]
     tables = []
     warnings = []
     for statement in statements:
         if statement is None:
+            continue
+        if isinstance(statement, exp.Command):
+            warnings.append(f"Unsupported SQL statement: {path}")
             continue
         if isinstance(statement, exp.Alter):
             warnings.append(f"ALTER TABLE is not applied to the static schema: {path}")
