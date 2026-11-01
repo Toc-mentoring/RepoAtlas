@@ -2,12 +2,29 @@
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 from worker.archive import ArchiveLimits
 from worker.github import AnalysisError, parse_repository_url
 from worker.runner import run_analysis
+
+
+def _write_json(output: Path, result: dict) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    name = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=output.parent,
+                                         prefix=f".{output.name}.", suffix=".tmp", delete=False) as stream:
+            name = stream.name
+            json.dump(result, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+        os.replace(name, output)
+    finally:
+        if name is not None:
+            Path(name).unlink(missing_ok=True)
 
 
 def main(argv=None) -> int:
@@ -20,8 +37,7 @@ def main(argv=None) -> int:
         repo = parse_repository_url(args.url)
         result = run_analysis(repo.url, args.sha, ArchiveLimits.from_environment())
         output = args.output or Path("analysis-output") / f"{repo.owner}-{repo.name}-{result['commit_sha'][:12]}.json"
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        _write_json(output, result)
     except (AnalysisError, OSError, ValueError) as exc:
         code = exc.code if isinstance(exc, AnalysisError) else "OUTPUT_ERROR"
         print(f"{code}: {exc}", file=sys.stderr)

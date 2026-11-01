@@ -39,7 +39,8 @@ def _child_analysis(url: str, sha: str | None, limits_data: dict, result_path: s
     except Exception:
         payload = {"error": {"code": "ANALYSIS_FAILED", "message": "Analysis process failed unexpectedly"}}
     try:
-        Path(result_path).write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        with Path(result_path).open("w", encoding="utf-8") as output:
+            json.dump(payload, output, ensure_ascii=False)
     finally:
         channel.close()
 
@@ -79,7 +80,8 @@ def run_analysis(url: str, sha: str | None, limits: ArchiveLimits, *, on_progres
                     on_progress(*event)
             if process.exitcode != 0 or not Path(result_path).is_file():
                 raise AnalysisError("ANALYSIS_FAILED", "Analysis process exited without a result")
-            payload = json.loads(Path(result_path).read_text(encoding="utf-8"))
+            with Path(result_path).open(encoding="utf-8") as output:
+                payload = json.load(output)
             if "error" in payload:
                 raise AnalysisError(payload["error"]["code"], payload["error"]["message"])
             return payload["result"]
