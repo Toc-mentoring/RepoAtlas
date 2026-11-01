@@ -55,3 +55,14 @@ def test_archive_uses_parent_controlled_workspace(tmp_path, monkeypatch):
                                 ArchiveLimits(), workspace=tmp_path)
     assert result["status"] == "completed"
     assert (tmp_path / "snapshot.zip").is_file()
+
+
+def test_lfs_pointer_is_skipped_during_file_analysis(tmp_path):
+    path = tmp_path / "repo.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("repo-sha/file.py", "version https://git-lfs.github.com/spec/v1\noid sha256:example\n")
+    result = analyze_archive(path, parse_repository_url("https://github.com/example/repo"), "a" * 40, ArchiveLimits())
+    assert result["status"] == "partial"
+    assert next(node for node in result["source_nodes"] if node["path"] == "file.py")["parse_status"] == "skipped"
+    assert result["code_symbols"] == []
+    assert result["warnings"] == ["Git LFS content is unavailable: file.py"]

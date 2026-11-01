@@ -24,9 +24,9 @@ def test_index_keeps_all_paths_without_extracting_source(tmp_path):
     nodes, warnings = index_archive(path, "project", ArchiveLimits())
     by_path = {node.path: node for node in nodes}
     assert set(by_path) == {".", "src", "src/main.py", "src/data.bin", "readme.md", "한글", "한글/file.go"}
-    assert by_path["src/main.py"].content == b"def run(): pass\n"
+    assert by_path["src/main.py"].archive_entry == "project-sha/src/main.py"
     assert by_path["src/main.py"].parent_path == "src"
-    assert by_path["src/data.bin"].content is None
+    assert by_path["src/data.bin"].archive_entry is None
     assert by_path["한글/file.go"].parse_status == "unsupported"
     assert warnings == []
     assert not (tmp_path / "src").exists()
@@ -51,7 +51,7 @@ def test_skips_symlink_without_following_and_rejects_duplicate_paths(tmp_path):
     path = archive(tmp_path, [(symlink, b"../../secret")])
     nodes, warnings = index_archive(path, "project", ArchiveLimits())
     link = next(node for node in nodes if node.path == "link")
-    assert link.content is None and link.parse_status == "skipped"
+    assert link.archive_entry is None and link.parse_status == "skipped"
     assert link.metadata["is_symlink"] is True
     assert warnings == ["Symbolic link was not followed: link"]
 
@@ -74,3 +74,15 @@ def test_rejects_archive_with_multiple_roots(tmp_path):
     path = archive(tmp_path, [("first/a.py", b"a"), ("second/b.py", b"b")])
     with pytest.raises(AnalysisError, match="common root"):
         index_archive(path, "project", ArchiveLimits())
+
+
+def test_index_does_not_load_source_file_contents(tmp_path, monkeypatch):
+    path = archive(tmp_path, [(f"project/file{i}.py", b"x" * 100_000) for i in range(20)])
+
+    def forbidden_read(*args, **kwargs):
+        raise AssertionError("Indexing must not read file contents")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", forbidden_read)
+    nodes, warnings = index_archive(path, "project", ArchiveLimits())
+    assert len(nodes) == 21 and not warnings
+    assert all(not hasattr(node, "content") for node in nodes)

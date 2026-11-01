@@ -43,7 +43,7 @@ class IndexedNode:
     language: str | None = None
     parse_status: str = "not_applicable"
     metadata: dict = field(default_factory=dict)
-    content: bytes | None = field(default=None, repr=False)
+    archive_entry: str | None = field(default=None, repr=False)
 
 
 _LANGUAGES = {".py": "python", ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript",
@@ -128,11 +128,7 @@ def index_archive(archive_path: Path, repo_name: str, limits: ArchiveLimits,
                         node.parse_status = "skipped"
                         warnings.append(f"File exceeds analysis size limit: {relative}")
                     else:
-                        node.content = archive.read(entry)
-                        if node.content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
-                            node.content = None
-                            node.parse_status = "skipped"
-                            warnings.append(f"Git LFS content is unavailable: {relative}")
+                        node.archive_entry = entry.filename
                 if parts[-1] == ".gitmodules":
                     warnings.append("Git submodule contents are not included in GitHub archives")
                 nodes[relative] = node

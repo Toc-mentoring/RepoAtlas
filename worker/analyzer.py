@@ -2,14 +2,15 @@
 
 import tempfile
 import time
+import zipfile
 from contextlib import ExitStack
 from dataclasses import asdict
 from pathlib import Path
 from typing import Callable
 
 from worker.archive import ArchiveLimits, IndexedNode, index_archive
-from worker.entities import Reference, SchemaTableFact, Symbol
-from worker.github import GitHubClient, LimitExceeded, RepositoryAddress
+from worker.entities import SchemaTableFact
+from worker.github import AnalysisError, GitHubClient, LimitExceeded, RepositoryAddress
 from worker.parsers.config_facts import parse_config, parse_python_facts
 from worker.parsers.javascript_ts import parse_javascript
 from worker.parsers.python_ast import parse_python
@@ -24,59 +25,67 @@ def analyze_archive(path: Path, repo: RepositoryAddress, sha: str, limits: Archi
     nodes, warnings = index_archive(path, repo.name, limits, deadline)
     if progress:
         progress("parsing", 30)
-    symbols: list[Symbol] = []
-    references: list[Reference] = []
+    symbols: list[dict] = []
+    references: list[dict] = []
     tables: dict[tuple[str, str], SchemaTableFact] = {}
     conflicts: set[tuple[str, str]] = set()
-    for node in nodes:
-        if deadline is not None and time.monotonic() >= deadline:
-            raise LimitExceeded("Analysis time limit exceeded")
-        if node.kind != "file" or node.content is None:
-            continue
-        try:
-            if node.language in {"python", "javascript", "typescript"}:
-                parser = parse_python if node.language == "python" else parse_javascript
-                found_symbols, found_refs, found_warnings = parser(node.path, node.content)
-                symbols.extend(found_symbols)
-                references.extend(found_refs)
-                warnings.extend(found_warnings)
-                node.parse_status = "failed" if found_warnings else "parsed"
-                if node.language == "python" and not found_warnings:
-                    facts = parse_python_facts(node.path, node.content)
-                    if facts:
-                        node.metadata["config_facts"] = facts
-            elif node.language == "sql":
-                found_tables, found_warnings = parse_sql(node.path, node.content)
-                warnings.extend(found_warnings)
-                node.parse_status = "failed" if any("parse error" in item for item in found_warnings) else "parsed"
-                for table in found_tables:
-                    key = table.schema_name, table.name
-                    if key in tables or key in conflicts:
-                        tables.pop(key, None)
-                        if key not in conflicts:
-                            warnings.append(f"Conflicting table declarations excluded: {table.schema_name}.{table.name}")
-                        conflicts.add(key)
+    file_paths = {node.path for node in nodes if node.kind == "file"}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            for node in nodes:
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise LimitExceeded("Analysis time limit exceeded")
+                if node.archive_entry is None:
+                    continue
+                content = archive.read(node.archive_entry)
+                if content.startswith(b"version https://git-lfs.github.com/spec/v1\n"):
+                    node.parse_status = "skipped"
+                    warnings.append(f"Git LFS content is unavailable: {node.path}")
+                    continue
+                try:
+                    if node.language in {"python", "javascript", "typescript"}:
+                        parser = parse_python if node.language == "python" else parse_javascript
+                        found_symbols, found_refs, found_warnings = parser(node.path, content)
+                        resolve_references(found_refs, file_paths)
+                        symbols.extend(asdict(symbol) for symbol in found_symbols)
+                        references.extend(asdict(ref) for ref in found_refs)
+                        warnings.extend(found_warnings)
+                        node.parse_status = "failed" if found_warnings else "parsed"
+                        if node.language == "python" and not found_warnings:
+                            facts = parse_python_facts(node.path, content)
+                            if facts:
+                                node.metadata["config_facts"] = facts
+                    elif node.language == "sql":
+                        found_tables, found_warnings = parse_sql(node.path, content)
+                        warnings.extend(found_warnings)
+                        node.parse_status = "failed" if any("parse error" in item for item in found_warnings) else "parsed"
+                        for table in found_tables:
+                            key = table.schema_name, table.name
+                            if key in tables or key in conflicts:
+                                tables.pop(key, None)
+                                if key not in conflicts:
+                                    warnings.append(f"Conflicting table declarations excluded: {table.schema_name}.{table.name}")
+                                conflicts.add(key)
+                            else:
+                                tables[key] = table
                     else:
-                        tables[key] = table
-            else:
-                facts, found_warnings = parse_config(node.path, node.content)
-                warnings.extend(found_warnings)
-                if facts:
-                    node.metadata["config_facts"] = facts
-        except (ValueError, TypeError, RuntimeError, RecursionError):
-            node.parse_status = "failed"
-            warnings.append(f"Unable to analyze file: {node.path}")
-        finally:
-            node.content = None
+                        facts, found_warnings = parse_config(node.path, content)
+                        warnings.extend(found_warnings)
+                        if facts:
+                            node.metadata["config_facts"] = facts
+                except (ValueError, TypeError, RuntimeError, RecursionError):
+                    node.parse_status = "failed"
+                    warnings.append(f"Unable to analyze file: {node.path}")
+    except (zipfile.BadZipFile, OSError) as exc:
+        raise AnalysisError("INVALID_ARCHIVE", "GitHub archive could not be read safely") from exc
     if progress:
         progress("resolving", 75)
-    resolve_references(references, {node.path for node in nodes if node.kind == "file"})
     for table in tables.values():
         for fk in table.foreign_keys:
             target = tables.get((fk.target_schema, fk.target_table))
             if target is None or fk.target_column is None or fk.target_column not in {c.name for c in target.columns}:
                 warnings.append(f"Unresolved foreign key: {table.schema_name}.{table.name}.{fk.source_column}")
-    unresolved = sum(ref.resolution_status == "unresolved" for ref in references)
+    unresolved = sum(ref["resolution_status"] == "unresolved" for ref in references)
     unsupported = sum(node.parse_status == "unsupported" for node in nodes)
     if unresolved:
         warnings.append(f"Unresolved or dynamic imports: {unresolved}")
@@ -88,17 +97,17 @@ def analyze_archive(path: Path, repo: RepositoryAddress, sha: str, limits: Archi
         "directory_count": sum(node.kind == "directory" for node in nodes),
         "parsed_files": sum(node.parse_status == "parsed" for node in nodes),
         "symbols": len(symbols),
-        "resolved_imports": sum(ref.resolution_status == "resolved" for ref in references),
+        "resolved_imports": sum(ref["resolution_status"] == "resolved" for ref in references),
         "unresolved_imports": unresolved,
-        "external_imports": sum(ref.resolution_status == "external" for ref in references),
+        "external_imports": sum(ref["resolution_status"] == "external" for ref in references),
         "tables": len(tables),
     }
     return {
         "repository_url": repo.url, "commit_sha": sha, "status": "partial" if warnings else "completed",
         "stats": stats, "warnings": warnings,
         "source_nodes": [_public_node(node) for node in nodes],
-        "code_symbols": [asdict(symbol) for symbol in symbols],
-        "code_references": [asdict(ref) for ref in references],
+        "code_symbols": symbols,
+        "code_references": references,
         "schema_tables": [asdict(table) for table in tables.values()],
     }
 
