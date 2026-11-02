@@ -8,6 +8,8 @@
 
 Git submodule의 외부 내용, Git LFS 원본 파일, 바이너리 본문, 동적 실행 결과 등은 자동 분석 대상이 아니며 경고에 기록합니다. `node_modules`, `.git`, 빌드 출력 등 아카이브에 존재하면 경로 정책에 따라 색인에서 제외할지 표시해야 합니다.
 
+ZIP의 symlink는 경로만 `skipped`로 색인합니다. 링크 대상은 읽거나 따라가지 않으며, 분석 결과에 경고를 남깁니다.
+
 ## 2. 분석 단계 인터페이스
 
 ```text
@@ -54,6 +56,8 @@ class ReferenceDTO:
 | Java/C/C++ | 없음(MVP) | 목록만 | 없음 | 지원 언어가 아닌 파일을 무조건 parse failed로 표기하지 않음 |
 
 `parse_status`: `not_applicable`(디렉터리/비코드 파일), `unsupported`(미지원 소스), `parsed`, `failed`, `skipped`(크기 제한 등).
+
+JS/TS의 이름 없는 콜백은 `<anonymous@줄:열>`로 표시하여 내부에 선언된 함수의 부모 범위를 보존합니다. 이 관계는 코드의 포함 관계이며 함수 호출 관계는 아닙니다.
 
 ### Python 해석 예시
 

@@ -91,6 +91,7 @@
 
 - **수집 제한:** 아카이브 크기/압축 해제 크기/파일 수 초과는 `failed` + `LIMIT_EXCEEDED`; 부분 저장 결과를 성공처럼 노출하지 않음.
 - **파일 파싱 실패:** 특정 파일만 실패하면 `partial` + `parse_status=failed`, 다른 파일 결과는 표시.
+- **심볼릭 링크:** 경로는 `skipped`로 색인하고 링크를 따라가지 않으며 `partial`과 경고를 표시.
 - **동적 import:** `unresolved` 유지; `resolved`처럼 보이지 않음.
 - **No schema:** `erd=unsupported`와 근거 부족 메시지.
 - **동일 SHA 재요청:** 완료·부분 분석을 재사용할지 여부는 상태/버전 규칙에 따름. 기본 재사용은 `completed`만, `partial`은 명시적 재시도 허용.

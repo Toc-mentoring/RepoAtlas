@@ -23,6 +23,7 @@
 
 - 상태 종류: `queued`, `fetching`, `parsing`, `resolving`, `completed`, `partial`, `failed`.
 - `partial` 실행은 결과 조회 가능하나 경고를 필수로 표시; `failed`는 생성 불가.
+- 심볼릭 링크는 실제 대상을 읽지 않고 `parse_status=skipped` 및 `partial` 경고로 표시.
 - 분석 완료 후 `GET /diagram-types` 호출 → 선택 가능 종류만 `POST /diagrams`.
 - SHA는 소스 고정 링크에 쓰는 40자 Git commit 해시로 반환. 실환경에서는 SHA-256 객체 저장소도 고려 가능하지만 GitHub 일반 SHA-1 형식을 MVP 계약으로 제한.
 
