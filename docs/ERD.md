@@ -16,6 +16,8 @@ erDiagram
     source_nodes ||--o{ code_references : "source_file"
     source_nodes o|--o{ code_references : "target_file"
     analysis_runs ||--o{ schema_tables : "detects"
+    analysis_runs ||--o{ schema_columns : "contains"
+    analysis_runs ||--o{ schema_foreign_keys : "contains"
     source_nodes o|--o{ schema_tables : "DDL_source"
     schema_tables ||--o{ schema_columns : "has"
     schema_columns ||--o{ schema_foreign_keys : "FK_source"
@@ -40,14 +42,20 @@ erDiagram
         jsonb stats
         jsonb warnings
         int attempts
+        text error_code
+        text error_message
+        timestamptz created_at
+        timestamptz started_at
         timestamptz heartbeat_at
+        timestamptz finished_at
     }
     source_nodes {
         bigint id PK
         uuid run_id FK
         bigint parent_id FK
         text kind
-        text path UK
+        text name
+        text path
         text language
         text parse_status
         jsonb metadata
@@ -59,6 +67,7 @@ erDiagram
         bigint parent_symbol_id FK
         text kind
         text name
+        text qualified_name
         int start_line
         int end_line
     }
@@ -67,6 +76,7 @@ erDiagram
         uuid run_id FK
         bigint source_file_id FK
         bigint target_file_id FK
+        text kind
         text raw_ref
         text resolution_status
         int source_line
@@ -84,6 +94,7 @@ erDiagram
         bigint table_id FK
         text name
         text data_type
+        int ordinal_position
         boolean is_primary
         boolean is_nullable
     }
@@ -103,6 +114,7 @@ erDiagram
         char options_hash
         jsonb options
         jsonb payload
+        timestamptz created_at
     }
 ```
 
@@ -121,6 +133,8 @@ erDiagram
 | `analysis_runs → diagram_views` (1:N) | 다이어그램 종류·옵션별 캐시 |
 
 복합 FK `(run_id, child_id)`를 통해 서로 다른 run의 노드·컬럼을 엉뚱하게 연결하지 못하도록 제한합니다. Mermaid 문법은 여러 컬럼으로 된 복합 FK 전체를 표현하기 어렵기 때문에 정확한 관계 제약은 [DB_SCHEMA.md](DB_SCHEMA.md)의 DDL이 우선합니다.
+
+`source_nodes.path`의 유일성은 경로 단독이 아닌 `(run_id, path)` 조합에 적용됩니다. 파일 참조가 실제 파일 노드를 가리키는지는 워커의 저장 단계에서 검증합니다. DB에 직접 쓰거나 다른 저장 경로를 추가할 때는 같은 검증이 필요합니다.
 
 ## DB와 화면의 매핑
 
