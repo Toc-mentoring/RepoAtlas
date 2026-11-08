@@ -2,7 +2,7 @@
 
 > **GitHub 저장소의 코드를 읽고, 유지보수 인수인계에 필요한 구조도를 선택해 생성하는 웹서비스**
 >
-> 상태: **Worker·DB 구현 / API·화면 구현 전** · 목표: **21일 MVP**
+> 상태: **Worker·DB 구현 / 프론트 mock 구현 / API 구현 전** · 목표: **21일 MVP**
 
 ## 5분 소개
 
@@ -81,7 +81,7 @@ flowchart LR
 
 ```text
 repoatlas/
-├── frontend/                 # React SPA (구현 예정)
+├── frontend/                 # React SPA (mock 구현)
 ├── backend/                  # DB 모델·migration 구현; FastAPI 구현 예정
 ├── worker/                   # 독립 분석 프로세스 및 JSON 테스트 명령
 ├── infra/                    # Compose/Nginx (구현 예정)
@@ -89,7 +89,7 @@ repoatlas/
 └── docs/                     # 설계 문서
 ```
 
-> Worker와 DB 모델·migration은 실행할 수 있습니다. FastAPI, 프론트엔드, Compose 배포는 아직 구현되지 않았습니다.
+> Worker와 DB 모델·migration은 실행할 수 있습니다. 프론트엔드는 mock으로 실행할 수 있으며 실제 API 연동은 검증 전입니다. FastAPI와 Compose 배포는 아직 구현되지 않았습니다.
 
 ## Worker 실행
 
