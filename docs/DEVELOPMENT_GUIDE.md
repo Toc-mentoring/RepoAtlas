@@ -73,7 +73,7 @@ RepoAtlas/
 └── .env.example
 ```
 
-DB 모델·migration과 Worker는 구현되어 있습니다. 위 구조 중 FastAPI, 프론트엔드, Compose/Nginx 관련 파일은 개발 목표입니다.
+DB 모델·migration과 Worker는 구현되어 있습니다. 프론트엔드는 mock으로 실행할 수 있습니다. FastAPI와 Compose/Nginx는 개발 목표입니다.
 
 ## 3. 환경 변수 계약 (.env.example 설계)
 
@@ -106,7 +106,7 @@ uv run alembic -c backend/alembic.ini upgrade head
 uv run python -m worker.main
 ```
 
-PostgreSQL은 별도로 준비하고 `.env`의 값은 프로세스 환경에 직접 주입합니다. DB 없는 JSON 분석은 [WORKER](WORKER.md)를 참고합니다. FastAPI, 프론트엔드, Docker Compose는 아직 실행할 수 없습니다.
+PostgreSQL은 별도로 준비하고 `.env`의 값은 프로세스 환경에 직접 주입합니다. DB 없는 JSON 분석은 [WORKER](WORKER.md)를 참고합니다. 프론트엔드는 `frontend/README.md`의 명령으로 mock 실행할 수 있습니다. FastAPI와 Docker Compose는 아직 실행할 수 없습니다.
 
 ## 5. 프론트↔백엔드 데이터 흐름
 
