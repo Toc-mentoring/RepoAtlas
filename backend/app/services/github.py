@@ -3,7 +3,7 @@
 import os
 import re
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -13,6 +13,7 @@ GITHUB_API = "https://api.github.com"
 
 _OWNER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$")
 _REPO = re.compile(r"^[A-Za-z0-9._-]{1,100}$")
+_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 def _invalid_url(url: str) -> ApiError:
@@ -86,7 +87,7 @@ class GitHubClient:
     def close(self) -> None:
         self._http.close()
 
-    def get_repository(self, ref: RepoRef) -> GitHubRepository:
+    def _get(self, path: str, ref: RepoRef) -> httpx.Response:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -96,7 +97,7 @@ class GitHubClient:
             headers["Authorization"] = f"Bearer {self._token}"
 
         try:
-            response = self._http.get(f"{GITHUB_API}/repos/{ref.owner}/{ref.name}", headers=headers)
+            response = self._http.get(f"{GITHUB_API}{path}", headers=headers)
         except httpx.HTTPError:
             raise ApiError(502, "GITHUB_UNAVAILABLE", "GitHub에 연결하지 못했습니다.") from None
 
@@ -120,8 +121,10 @@ class GitHubClient:
             raise ApiError(403, "GITHUB_FORBIDDEN", "GitHub가 저장소 접근을 거부했습니다.")
         if status != 200:
             raise ApiError(502, "GITHUB_UNAVAILABLE", "GitHub 응답이 올바르지 않습니다.", {"status": status})
+        return response
 
-        data = response.json()
+    def get_repository(self, ref: RepoRef) -> GitHubRepository:
+        data = self._get(f"/repos/{ref.owner}/{ref.name}", ref).json()
         if data.get("private"):
             # MVP는 공개 저장소만 지원한다.
             raise ApiError(404, "REPOSITORY_NOT_FOUND", "공개 저장소만 등록할 수 있습니다.")
@@ -130,3 +133,11 @@ class GitHubClient:
             name=data["name"],
             default_branch=data.get("default_branch") or "main",
         )
+
+    def get_branch_head_sha(self, ref: RepoRef, branch: str) -> str:
+        """브랜치의 현재 마지막 커밋 SHA(40자)를 가져온다."""
+        data = self._get(f"/repos/{ref.owner}/{ref.name}/branches/{quote(branch, safe='/')}", ref).json()
+        sha = str(data.get("commit", {}).get("sha", "")).lower()
+        if not _SHA.match(sha):
+            raise ApiError(502, "GITHUB_UNAVAILABLE", "GitHub 커밋 정보가 올바르지 않습니다.")
+        return sha

@@ -105,3 +105,23 @@ def test_network_error_is_github_unavailable():
         make_client(handler).get_repository(REF)
     assert caught.value.status_code == 502
     assert caught.value.code == "GITHUB_UNAVAILABLE"
+
+
+def test_get_branch_head_sha():
+    seen = {}
+
+    def handler(request):
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"commit": {"sha": "ABCDEF0123456789ABCDEF0123456789ABCDEF01"}})
+
+    sha = make_client(handler).get_branch_head_sha(REF, "main")
+
+    assert seen["url"] == "https://api.github.com/repos/example-org/sample-web/branches/main"
+    assert sha == "abcdef0123456789abcdef0123456789abcdef01"
+
+
+def test_get_branch_head_sha_rejects_bad_sha():
+    response = httpx.Response(200, json={"commit": {"sha": "not-a-sha"}})
+    with pytest.raises(ApiError) as caught:
+        make_client(lambda request: response).get_branch_head_sha(REF, "main")
+    assert caught.value.code == "GITHUB_UNAVAILABLE"
