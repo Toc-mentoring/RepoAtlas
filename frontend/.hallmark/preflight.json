@@ -1,0 +1,19 @@
+{
+  "scanned": "2026-11-10",
+  "findings": {
+    "fonts": "DM Sans, Noto Sans KR and IBM Plex Mono; frontend/src/style.css",
+    "palette": "dark and light CSS rules; frontend/src/style.css",
+    "motion": "no motion library; frontend/package.json",
+    "spacing": "ad hoc CSS values; frontend/src/style.css",
+    "framework": "React, TypeScript and Vite; frontend/package.json"
+  },
+  "preserve": [
+    "existing routes, forms, theme switch, graph, API wiring and user data",
+    "existing Korean product copy"
+  ],
+  "introduce": [
+    "monochrome semantic tokens",
+    "larger labels and clearer visual hierarchy",
+    "Console-inspired flat application surfaces"
+  ]
+}

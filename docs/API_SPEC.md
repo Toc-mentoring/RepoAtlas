@@ -103,7 +103,9 @@ Body (`url` 필수, 정확히 github.com 공개 저장소 주소):
 
 ## 5. A04 — 분석 실행/재분석
 
-`POST /api/v1/repositories/{repo_id}/analyses` · Body는 `{}` 또는 없음. 기본 브랜치 현재 HEAD를 GitHub API로 조회하여 `commit_sha` 고정.
+`POST /api/v1/repositories/{repo_id}/analyses` · Body: `{"commit_sha":"<40자리 16진수 SHA>"}`. 지정한 커밋을 분석하며 유효하지 않은 SHA는 422로 거부한다. 동일 저장소와 SHA의 진행 중 또는 완료된 분석만 재사용한다.
+
+> 통합 필요: 현재 `develop` 백엔드는 요청 본문의 SHA를 사용하지 않고 기본 브랜치 HEAD를 분석한다. 위 요청 형식을 지원하도록 백엔드를 변경하기 전에는 실제 API 모드에서 지정 SHA 분석이 동작하지 않는다.
 
 새 실행 `202 Accepted`:
 

@@ -1,19 +1,577 @@
-import {useState} from 'react';
-import {ReactFlow,Background,Controls,MarkerType, type Node, type Edge} from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
-import {Box,GitBranch,Search, Plus, ArrowRight, Folder, FileCode2, ExternalLink, ChevronRight, CircleHelp, LayoutGrid, Network, Braces, CheckCircle2, AlertTriangle, Clock3} from 'lucide-react';
-import './style.css';
-type Status='completed'|'partial'|'failed'|'queued'|'fetching'|'parsing'|'resolving';
-type Repo={id:string;owner:string;name:string;status:Status;progress:number;sha:string};
-const initial:Repo[]=[{id:'1',owner:'facebook',name:'react',status:'completed',progress:100,sha:'0123456789abcdef0123456789abcdef01234567'},{id:'2',owner:'vercel',name:'next.js',status:'partial',progress:100,sha:'0123456789abcdef0123456789abcdef01234567'},{id:'3',owner:'example',name:'api-server',status:'failed',progress:0,sha:'0123456789abcdef0123456789abcdef01234567'}];
-const files=[{id:'main',name:'main.tsx',path:'src/main.tsx',kind:'Entry point',imports:['App.tsx','utils.ts'],symbols:['renderRoot()']},{id:'app',name:'App.tsx',path:'src/App.tsx',kind:'Component',imports:['Header.tsx','api.ts'],symbols:['App()']},{id:'utils',name:'utils.ts',path:'src/utils.ts',kind:'Utility',imports:[],symbols:['formatDate()','initLogger()']},{id:'header',name:'Header.tsx',path:'src/components/Header.tsx',kind:'Component',imports:[],symbols:['Header()']},{id:'api',name:'api.ts',path:'src/api.ts',kind:'Module',imports:[],symbols:['fetchRepository()']}];
-const labels:Record<Status,string>={completed:'분석 완료',partial:'부분 완료',failed:'분석 실패',queued:'대기 중',fetching:'수집 중',parsing:'분석 중',resolving:'관계 확인 중'};
-const positions=[{x:40,y:180},{x:320,y:100},{x:320,y:270},{x:600,y:40},{x:600,y:190}];
-function App(){const [repos,setRepos]=useState(initial);const [repo,setRepo]=useState<Repo|null>(null);const [url,setUrl]=useState('');const [error,setError]=useState('');const [mode,setMode]=useState<'directory'|'dependency'|'symbols'>('dependency');const [selected,setSelected]=useState('main');const [search,setSearch]=useState('');const [filter,setFilter]=useState('all');const [view,setView]=useState<'repos'|'graph'>('repos');const file=files.find(f=>f.id===selected)!;
-function register(e:React.FormEvent){e.preventDefault();const m=url.trim().match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)\/?$/i);if(!m){setError('공개 GitHub 저장소 주소를 확인해 주세요. 예: https://github.com/owner/repository');return}const existing=repos.find(r=>r.owner.toLowerCase()===m[1].toLowerCase()&&r.name.toLowerCase()===m[2].toLowerCase());if(existing){setError('이미 목록에 있는 저장소입니다.');return}const next:Repo={id:crypto.randomUUID(),owner:m[1],name:m[2],status:'queued',progress:0,sha:''};setRepos([next,...repos]);setUrl('');setError('');}
-function start(r:Repo){const next={...r,status:'queued' as Status,progress:0};setRepos(repos.map(x=>x.id===r.id?next:x));setRepo(next)}
-const visible=files.filter(f=>(filter==='all'||f.kind===filter)&&(`${f.name} ${f.path}`.toLowerCase().includes(search.toLowerCase())));let nodes:Node[]=visible.map((f)=>({id:f.id,position:positions[files.indexOf(f)],data:{label:<><span className="node-icon">{f.kind==='Component'?'◇':'⌘'}</span><span><strong>{f.name}</strong><small>{f.path}</small></span></>},className:'file-node'}));let pairs=[['main','app'],['main','utils'],['app','header'],['app','api']];if(mode==='directory'){nodes=[{id:'root',position:{x:0,y:160},data:{label:'▾  src'},className:'file-node'},...visible.map((f,i)=>({id:f.id,position:{x:280,y:i*95},data:{label:f.name},className:'file-node'}))];pairs=visible.map(f=>['root',f.id])}if(mode==='symbols'){nodes=[{id:file.id,position:{x:80,y:120},data:{label:file.name},className:'file-node'},...file.symbols.filter(s=>s.toLowerCase().includes(search.toLowerCase())).map((s,i)=>({id:'s'+i,position:{x:380,y:60+i*100},data:{label:'ƒ  '+s},className:'file-node'}))];pairs=nodes.slice(1).map(n=>[file.id,n.id])}const ids=new Set(nodes.map(n=>n.id));const edges:Edge[]=pairs.filter(([a,b])=>ids.has(a)&&ids.has(b)).map(([a,b])=>({id:a+b,source:a,target:b,markerEnd:{type:MarkerType.ArrowClosed,color:'#657886'},style:{stroke:'#657886',strokeWidth:1.5}}));
-return <div className="app"><header className="top"><button className="brand" onClick={()=>setView('repos')}><span className="brandmark"><Box size={19}/></span><b>RepoAtlas</b></button><span className="divider"/><span className="crumb" onClick={()=>setView('repos')}>Repositories</span>{view==='graph'&&<><ChevronRight size={14}/><span className="crumb current">{repo?.owner}/{repo?.name}</span></>}<div className="topright"><span className="demo-dot"/> 예시 데이터 <span className="topsep"/><CircleHelp size={17}/></div></header>
-{view==='repos'?<main className="home"><div className="eyebrow">WORKSPACE <span>/</span> REPOSITORIES</div><div className="heading"><div><h1>저장소</h1><p>코드의 구조를 한눈에 살펴보세요.</p></div><span className="count">{repos.length}개 저장소</span></div><section className="add-card"><div className="add-icon"><Plus size={21}/></div><div className="add-content"><h2>새 저장소 분석하기</h2><p>공개 GitHub 저장소 주소를 입력해 주세요.</p><form onSubmit={register}><div className="input-wrap"><GitBranch size={17}/><input value={url} onChange={e=>{setUrl(e.target.value);setError('')}} placeholder="https://github.com/owner/repository" aria-label="GitHub 저장소 URL"/></div><button className="primary">저장소 등록 <ArrowRight size={16}/></button></form>{error&&<p className="error" role="alert">{error}</p>}<small>현재는 예시 데이터로 동작합니다. 실제 저장소를 분석하지 않습니다.</small></div></section><div className="section-head"><div><h2>내 저장소</h2><p>등록한 저장소와 최근 분석 상태입니다.</p></div></div><div className="repo-list"><div className="table-head"><span>저장소</span><span>최근 분석</span><span>상태</span><span></span></div>{repos.map(r=><div className="repo-row" key={r.id}><div className="repo-name"><span className="repo-icon"><GitBranch size={17}/></span><div><b>{r.name}</b><small>{r.owner} / {r.name}</small></div></div><div className="muted">{r.sha?r.sha.slice(0,7):'아직 분석 전'}</div><div><span className={'status '+r.status}><i/>{labels[r.status]}</span></div><button className="row-action" onClick={()=>{setRepo(r);setView('graph')}}>열기 <ChevronRight size={16}/></button></div>)}</div><div className="home-note"><CircleHelp size={16}/> 공개 저장소만 등록할 수 있습니다. 분석 결과는 고정된 커밋을 기준으로 표시됩니다.</div></main>:<><div className="workspace-head"><div><button className="back" onClick={()=>setView('repos')}>← 모든 저장소</button><h1>{repo?.owner} <span>/</span> {repo?.name}</h1><p><GitBranch size={14}/> main <span>·</span> {repo?.sha?repo.sha.slice(0,7):'분석 대기'}</p></div><div className="work-actions"><span className={'status '+repo?.status}><i/>{repo&&labels[repo.status]}</span><button className="outline" onClick={()=>repo&&start(repo)}>분석 요청</button></div></div>{repo?.status==='failed'&&<div className="notice fail"><AlertTriangle size={16}/> 분석에 실패했습니다. 저장소 접근 상태를 확인하고 다시 요청해 주세요.</div>}{repo?.status==='partial'&&<div className="notice"><AlertTriangle size={16}/> 일부 파일을 분석하지 못했습니다. 결과를 확인할 수 있지만 누락된 관계가 있을 수 있습니다.</div>}{repo?.status==='queued'&&<div className="notice"><Clock3 size={16}/> 예시 모드: 분석 요청이 대기 상태로 표시됩니다. 실제 작업은 실행되지 않습니다.</div>}<div className="viewer"><aside className="explorer"><div className="panel-title">파일 탐색기 <span>{visible.length} FILES</span></div><div className="search"><Search size={15}/><input placeholder="파일 검색" value={search} onChange={e=>setSearch(e.target.value)}/></div><select value={filter} onChange={e=>setFilter(e.target.value)} aria-label="파일 유형 필터"><option value="all">모든 파일 유형</option><option>Component</option><option>Module</option><option>Utility</option><option>Entry point</option></select><div className="tree-root"><Folder size={16}/> src <span>⌄</span></div>{visible.map(f=><button className={'tree-item '+(selected===f.id?'active':'')} key={f.id} onClick={()=>setSelected(f.id)}><FileCode2 size={15}/>{f.name}</button>)}{visible.length===0&&<div className="empty">검색 결과가 없습니다.</div>}<div className="explorer-foot"><span className="demo-dot"/> 예시 저장소 구조</div></aside><section className="canvas"><div className="canvas-toolbar"><div className="tabs"><button className={mode==='directory'?'active':''} onClick={()=>setMode('directory')}><LayoutGrid size={15}/> 폴더 구조</button><button className={mode==='dependency'?'active':''} onClick={()=>setMode('dependency')}><Network size={15}/> 의존성</button><button className={mode==='symbols'?'active':''} onClick={()=>setMode('symbols')}><Braces size={15}/> 심볼</button></div><span>드래그하여 이동 · 스크롤하여 확대</span></div><div className="flow"><ReactFlow nodes={nodes} edges={edges} onNodeClick={(_,n)=>{if(files.some(f=>f.id===n.id))setSelected(n.id)}} fitView minZoom={0.3} maxZoom={2}><Background color="#26323b" gap={24}/><Controls showInteractive={false}/></ReactFlow></div><div className="canvas-foot"><span><span className="demo-dot"/> 예시 데이터 · 실제 분석 결과가 아닙니다</span><span>노드 {nodes.length} <b>·</b> 연결 {edges.length}</span></div></section><aside className="details"><div className="panel-title">파일 상세 <span>DETAILS</span></div><div className="detail-body"><span className="type-label">{file.kind}</span><h2>{file.name}</h2><p className="path">{file.path}</p><div className="detail-grid"><div><small>IMPORTS</small><b>{file.imports.length}</b></div><div><small>SYMBOLS</small><b>{file.symbols.length}</b></div></div><h3>가져오는 파일 <span>{file.imports.length}</span></h3>{file.imports.length?file.imports.map(s=><div className="detail-line" key={s}>↗ <span>{s}</span></div>):<p className="muted">표시할 import가 없습니다.</p>}<h3>선언된 심볼 <span>{file.symbols.length}</span></h3>{file.symbols.map(s=><div className="detail-line" key={s}>ƒ <span>{s}</span></div>)}<span className="github" aria-disabled="true">GitHub 원본 링크 · 실제 분석 후 제공 <ExternalLink size={14}/></span><p className="detail-note">예시 경로입니다. 실제 저장소와 일치하지 않을 수 있습니다.</p></div></aside></div></> }<footer><span>RepoAtlas <b>·</b> Repository intelligence</span><span><CheckCircle2 size={13}/> Mock 환경</span></footer></div>}
+import { useState } from "react";
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MarkerType,
+  type Node,
+  type Edge,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import {
+  Box,
+  GitBranch,
+  Search,
+  Plus,
+  ArrowRight,
+  Folder,
+  FileCode2,
+  ExternalLink,
+  ChevronRight,
+  CircleHelp,
+  LayoutGrid,
+  Network,
+  Braces,
+  CheckCircle2,
+  AlertTriangle,
+  Clock3,
+} from "lucide-react";
+import "./style.css";
+type Status =
+  | "completed"
+  | "partial"
+  | "failed"
+  | "queued"
+  | "fetching"
+  | "parsing"
+  | "resolving";
+type Repo = {
+  id: string;
+  owner: string;
+  name: string;
+  status: Status;
+  progress: number;
+  sha: string;
+};
+const initial: Repo[] = [
+  {
+    id: "1",
+    owner: "facebook",
+    name: "react",
+    status: "completed",
+    progress: 100,
+    sha: "0123456789abcdef0123456789abcdef01234567",
+  },
+  {
+    id: "2",
+    owner: "vercel",
+    name: "next.js",
+    status: "partial",
+    progress: 100,
+    sha: "0123456789abcdef0123456789abcdef01234567",
+  },
+  {
+    id: "3",
+    owner: "example",
+    name: "api-server",
+    status: "failed",
+    progress: 0,
+    sha: "0123456789abcdef0123456789abcdef01234567",
+  },
+];
+const files = [
+  {
+    id: "main",
+    name: "main.tsx",
+    path: "src/main.tsx",
+    kind: "Entry point",
+    imports: ["App.tsx", "utils.ts"],
+    symbols: ["renderRoot()"],
+  },
+  {
+    id: "app",
+    name: "App.tsx",
+    path: "src/App.tsx",
+    kind: "Component",
+    imports: ["Header.tsx", "api.ts"],
+    symbols: ["App()"],
+  },
+  {
+    id: "utils",
+    name: "utils.ts",
+    path: "src/utils.ts",
+    kind: "Utility",
+    imports: [],
+    symbols: ["formatDate()", "initLogger()"],
+  },
+  {
+    id: "header",
+    name: "Header.tsx",
+    path: "src/components/Header.tsx",
+    kind: "Component",
+    imports: [],
+    symbols: ["Header()"],
+  },
+  {
+    id: "api",
+    name: "api.ts",
+    path: "src/api.ts",
+    kind: "Module",
+    imports: [],
+    symbols: ["fetchRepository()"],
+  },
+];
+const labels: Record<Status, string> = {
+  completed: "분석 완료",
+  partial: "부분 완료",
+  failed: "분석 실패",
+  queued: "대기 중",
+  fetching: "수집 중",
+  parsing: "분석 중",
+  resolving: "관계 확인 중",
+};
+const positions = [
+  { x: 40, y: 180 },
+  { x: 320, y: 100 },
+  { x: 320, y: 270 },
+  { x: 600, y: 40 },
+  { x: 600, y: 190 },
+];
+function App() {
+  const [repos, setRepos] = useState(initial);
+  const [repo, setRepo] = useState<Repo | null>(null);
+  const [url, setUrl] = useState("");
+  const [error, setError] = useState("");
+  const [mode, setMode] = useState<"directory" | "dependency" | "symbols">(
+    "dependency",
+  );
+  const [selected, setSelected] = useState("main");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [view, setView] = useState<"repos" | "graph">("repos");
+  const file = files.find((f) => f.id === selected)!;
+  function register(e: React.FormEvent) {
+    e.preventDefault();
+    const m = url
+      .trim()
+      .match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+?)\/?$/i);
+    if (!m) {
+      setError(
+        "공개 GitHub 저장소 주소를 확인해 주세요. 예: https://github.com/owner/repository",
+      );
+      return;
+    }
+    const existing = repos.find(
+      (r) =>
+        r.owner.toLowerCase() === m[1].toLowerCase() &&
+        r.name.toLowerCase() === m[2].toLowerCase(),
+    );
+    if (existing) {
+      setError("이미 목록에 있는 저장소입니다.");
+      return;
+    }
+    const next: Repo = {
+      id: crypto.randomUUID(),
+      owner: m[1],
+      name: m[2],
+      status: "queued",
+      progress: 0,
+      sha: "",
+    };
+    setRepos([next, ...repos]);
+    setUrl("");
+    setError("");
+  }
+  function start(r: Repo) {
+    const next = { ...r, status: "queued" as Status, progress: 0 };
+    setRepos(repos.map((x) => (x.id === r.id ? next : x)));
+    setRepo(next);
+  }
+  const visible = files.filter(
+    (f) =>
+      (filter === "all" || f.kind === filter) &&
+      `${f.name} ${f.path}`.toLowerCase().includes(search.toLowerCase()),
+  );
+  let nodes: Node[] = visible.map((f) => ({
+    id: f.id,
+    position: positions[files.indexOf(f)],
+    data: {
+      label: (
+        <>
+          <span className="node-icon">
+            {f.kind === "Component" ? "◇" : "⌘"}
+          </span>
+          <span>
+            <strong>{f.name}</strong>
+            <small>{f.path}</small>
+          </span>
+        </>
+      ),
+    },
+    className: "file-node",
+  }));
+  let pairs = [
+    ["main", "app"],
+    ["main", "utils"],
+    ["app", "header"],
+    ["app", "api"],
+  ];
+  if (mode === "directory") {
+    nodes = [
+      {
+        id: "root",
+        position: { x: 0, y: 160 },
+        data: { label: "▾  src" },
+        className: "file-node",
+      },
+      ...visible.map((f, i) => ({
+        id: f.id,
+        position: { x: 280, y: i * 95 },
+        data: { label: f.name },
+        className: "file-node",
+      })),
+    ];
+    pairs = visible.map((f) => ["root", f.id]);
+  }
+  if (mode === "symbols") {
+    nodes = [
+      {
+        id: file.id,
+        position: { x: 80, y: 120 },
+        data: { label: file.name },
+        className: "file-node",
+      },
+      ...file.symbols
+        .filter((s) => s.toLowerCase().includes(search.toLowerCase()))
+        .map((s, i) => ({
+          id: "s" + i,
+          position: { x: 380, y: 60 + i * 100 },
+          data: { label: "ƒ  " + s },
+          className: "file-node",
+        })),
+    ];
+    pairs = nodes.slice(1).map((n) => [file.id, n.id]);
+  }
+  const ids = new Set(nodes.map((n) => n.id));
+  const edges: Edge[] = pairs
+    .filter(([a, b]) => ids.has(a) && ids.has(b))
+    .map(([a, b]) => ({
+      id: a + b,
+      source: a,
+      target: b,
+      markerEnd: { type: MarkerType.ArrowClosed, color: "#657886" },
+      style: { stroke: "#657886", strokeWidth: 1.5 },
+    }));
+  return (
+    <div className="app">
+      <header className="top">
+        <button className="brand" onClick={() => setView("repos")}>
+          <span className="brandmark">
+            <Box size={19} />
+          </span>
+          <b>RepoAtlas</b>
+        </button>
+        <span className="divider" />
+        <span className="crumb" onClick={() => setView("repos")}>
+          Repositories
+        </span>
+        {view === "graph" && (
+          <>
+            <ChevronRight size={14} />
+            <span className="crumb current">
+              {repo?.owner}/{repo?.name}
+            </span>
+          </>
+        )}
+        <div className="topright">
+          <span className="demo-dot" /> 예시 데이터 <span className="topsep" />
+          <CircleHelp size={17} />
+        </div>
+      </header>
+      {view === "repos" ? (
+        <main className="home">
+          <div className="eyebrow">
+            WORKSPACE <span>/</span> REPOSITORIES
+          </div>
+          <div className="heading">
+            <div>
+              <h1>저장소</h1>
+              <p>코드의 구조를 한눈에 살펴보세요.</p>
+            </div>
+            <span className="count">{repos.length}개 저장소</span>
+          </div>
+          <section className="add-card">
+            <div className="add-icon">
+              <Plus size={21} />
+            </div>
+            <div className="add-content">
+              <h2>새 저장소 분석하기</h2>
+              <p>공개 GitHub 저장소 주소를 입력해 주세요.</p>
+              <form onSubmit={register}>
+                <div className="input-wrap">
+                  <GitBranch size={17} />
+                  <input
+                    value={url}
+                    onChange={(e) => {
+                      setUrl(e.target.value);
+                      setError("");
+                    }}
+                    placeholder="https://github.com/owner/repository"
+                    aria-label="GitHub 저장소 URL"
+                  />
+                </div>
+                <button className="primary">
+                  저장소 등록 <ArrowRight size={16} />
+                </button>
+              </form>
+              {error && (
+                <p className="error" role="alert">
+                  {error}
+                </p>
+              )}
+              <small>
+                현재는 예시 데이터로 동작합니다. 실제 저장소를 분석하지
+                않습니다.
+              </small>
+            </div>
+          </section>
+          <div className="section-head">
+            <div>
+              <h2>내 저장소</h2>
+              <p>등록한 저장소와 최근 분석 상태입니다.</p>
+            </div>
+          </div>
+          <div className="repo-list">
+            <div className="table-head">
+              <span>저장소</span>
+              <span>최근 분석</span>
+              <span>상태</span>
+              <span></span>
+            </div>
+            {repos.map((r) => (
+              <div className="repo-row" key={r.id}>
+                <div className="repo-name">
+                  <span className="repo-icon">
+                    <GitBranch size={17} />
+                  </span>
+                  <div>
+                    <b>{r.name}</b>
+                    <small>
+                      {r.owner} / {r.name}
+                    </small>
+                  </div>
+                </div>
+                <div className="muted">
+                  {r.sha ? r.sha.slice(0, 7) : "아직 분석 전"}
+                </div>
+                <div>
+                  <span className={"status " + r.status}>
+                    <i />
+                    {labels[r.status]}
+                  </span>
+                </div>
+                <button
+                  className="row-action"
+                  onClick={() => {
+                    setRepo(r);
+                    setView("graph");
+                  }}
+                >
+                  열기 <ChevronRight size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="home-note">
+            <CircleHelp size={16} /> 공개 저장소만 등록할 수 있습니다. 분석
+            결과는 고정된 커밋을 기준으로 표시됩니다.
+          </div>
+        </main>
+      ) : (
+        <>
+          <div className="workspace-head">
+            <div>
+              <button className="back" onClick={() => setView("repos")}>
+                ← 모든 저장소
+              </button>
+              <h1>
+                {repo?.owner} <span>/</span> {repo?.name}
+              </h1>
+              <p>
+                <GitBranch size={14} /> main <span>·</span>{" "}
+                {repo?.sha ? repo.sha.slice(0, 7) : "분석 대기"}
+              </p>
+            </div>
+            <div className="work-actions">
+              <span className={"status " + repo?.status}>
+                <i />
+                {repo && labels[repo.status]}
+              </span>
+              <button className="outline" onClick={() => repo && start(repo)}>
+                분석 요청
+              </button>
+            </div>
+          </div>
+          {repo?.status === "failed" && (
+            <div className="notice fail">
+              <AlertTriangle size={16} /> 분석에 실패했습니다. 저장소 접근
+              상태를 확인하고 다시 요청해 주세요.
+            </div>
+          )}
+          {repo?.status === "partial" && (
+            <div className="notice">
+              <AlertTriangle size={16} /> 일부 파일을 분석하지 못했습니다.
+              결과를 확인할 수 있지만 누락된 관계가 있을 수 있습니다.
+            </div>
+          )}
+          {repo?.status === "queued" && (
+            <div className="notice">
+              <Clock3 size={16} /> 예시 모드: 분석 요청이 대기 상태로
+              표시됩니다. 실제 작업은 실행되지 않습니다.
+            </div>
+          )}
+          <div className="viewer">
+            <aside className="explorer">
+              <div className="panel-title">
+                파일 탐색기 <span>{visible.length} FILES</span>
+              </div>
+              <div className="search">
+                <Search size={15} />
+                <input
+                  placeholder="파일 검색"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <select
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                aria-label="파일 유형 필터"
+              >
+                <option value="all">모든 파일 유형</option>
+                <option>Component</option>
+                <option>Module</option>
+                <option>Utility</option>
+                <option>Entry point</option>
+              </select>
+              <div className="tree-root">
+                <Folder size={16} /> src <span>⌄</span>
+              </div>
+              {visible.map((f) => (
+                <button
+                  className={"tree-item " + (selected === f.id ? "active" : "")}
+                  key={f.id}
+                  onClick={() => setSelected(f.id)}
+                >
+                  <FileCode2 size={15} />
+                  {f.name}
+                </button>
+              ))}
+              {visible.length === 0 && (
+                <div className="empty">검색 결과가 없습니다.</div>
+              )}
+              <div className="explorer-foot">
+                <span className="demo-dot" /> 예시 저장소 구조
+              </div>
+            </aside>
+            <section className="canvas">
+              <div className="canvas-toolbar">
+                <div className="tabs">
+                  <button
+                    className={mode === "directory" ? "active" : ""}
+                    onClick={() => setMode("directory")}
+                  >
+                    <LayoutGrid size={15} /> 폴더 구조
+                  </button>
+                  <button
+                    className={mode === "dependency" ? "active" : ""}
+                    onClick={() => setMode("dependency")}
+                  >
+                    <Network size={15} /> 의존성
+                  </button>
+                  <button
+                    className={mode === "symbols" ? "active" : ""}
+                    onClick={() => setMode("symbols")}
+                  >
+                    <Braces size={15} /> 심볼
+                  </button>
+                </div>
+                <span>드래그하여 이동 · 스크롤하여 확대</span>
+              </div>
+              <div className="flow">
+                <ReactFlow
+                  nodes={nodes}
+                  edges={edges}
+                  onNodeClick={(_, n) => {
+                    if (files.some((f) => f.id === n.id)) setSelected(n.id);
+                  }}
+                  fitView
+                  minZoom={0.3}
+                  maxZoom={2}
+                >
+                  <Background color="#26323b" gap={24} />
+                  <Controls showInteractive={false} />
+                </ReactFlow>
+              </div>
+              <div className="canvas-foot">
+                <span>
+                  <span className="demo-dot" /> 예시 데이터 · 실제 분석 결과가
+                  아닙니다
+                </span>
+                <span>
+                  노드 {nodes.length} <b>·</b> 연결 {edges.length}
+                </span>
+              </div>
+            </section>
+            <aside className="details">
+              <div className="panel-title">
+                파일 상세 <span>DETAILS</span>
+              </div>
+              <div className="detail-body">
+                <span className="type-label">{file.kind}</span>
+                <h2>{file.name}</h2>
+                <p className="path">{file.path}</p>
+                <div className="detail-grid">
+                  <div>
+                    <small>IMPORTS</small>
+                    <b>{file.imports.length}</b>
+                  </div>
+                  <div>
+                    <small>SYMBOLS</small>
+                    <b>{file.symbols.length}</b>
+                  </div>
+                </div>
+                <h3>
+                  가져오는 파일 <span>{file.imports.length}</span>
+                </h3>
+                {file.imports.length ? (
+                  file.imports.map((s) => (
+                    <div className="detail-line" key={s}>
+                      ↗ <span>{s}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="muted">표시할 import가 없습니다.</p>
+                )}
+                <h3>
+                  선언된 심볼 <span>{file.symbols.length}</span>
+                </h3>
+                {file.symbols.map((s) => (
+                  <div className="detail-line" key={s}>
+                    ƒ <span>{s}</span>
+                  </div>
+                ))}
+                <span className="github" aria-disabled="true">
+                  GitHub 원본 링크 · 실제 분석 후 제공{" "}
+                  <ExternalLink size={14} />
+                </span>
+                <p className="detail-note">
+                  예시 경로입니다. 실제 저장소와 일치하지 않을 수 있습니다.
+                </p>
+              </div>
+            </aside>
+          </div>
+        </>
+      )}
+      <footer>
+        <span>
+          RepoAtlas <b>·</b> Repository intelligence
+        </span>
+        <span>
+          <CheckCircle2 size={13} /> Mock 환경
+        </span>
+      </footer>
+    </div>
+  );
+}
 export default App;
-
