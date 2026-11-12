@@ -1,0 +1,28 @@
+[
+ {
+  "mode": "redesign",
+  "depth": "full",
+  "scope": "app",
+  "theme": "console",
+  "shape": "app screen",
+  "axes": "dark/grotesk-sans/neutral",
+  "hero": "none, application screen",
+  "nav": "compact workspace bar",
+  "footer": "simple status line",
+  "imagery": "none, working graph is the product",
+  "photos": [],
+  "entry": "repository list and commit form",
+  "fingerprint": "monochrome developer workbench with labeled inputs and graph explorer",
+  "sections": [
+   "repository form",
+   "repository list",
+   "analysis status",
+   "diagram selection",
+   "graph explorer"
+  ],
+  "signature": "repository list and graph explorer",
+  "waived": [],
+  "prompt": "Improve readability and replace the dark green palette with monochrome",
+  "date": "2026-11-10"
+ }
+]
