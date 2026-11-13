@@ -64,3 +64,33 @@ def test_resolved_imports_match_fixture(language, source, statement, files, targ
     assert not warnings and len(refs) == 1
     resolve_references(refs, files | {source})
     assert (refs[0].target_path, refs[0].resolution_status) == (target, status)
+
+
+def test_static_import_precision_and_recall():
+    true_positive = false_positive = false_negative = 0
+    static_cases = 0
+    for language, source, statement, files, target, status in CASES:
+        parser = parse_python if language == "py" else parse_javascript
+        _, refs, warnings = parser(source, statement.encode())
+        assert not warnings and len(refs) == 1
+        ref = refs[0]
+        if ref.mode == "dynamic":
+            continue
+        static_cases += 1
+        resolve_references(refs, files | {source})
+        expected = target if status == "resolved" else None
+        actual = ref.target_path if ref.resolution_status == "resolved" else None
+        if actual is not None:
+            if actual == expected:
+                true_positive += 1
+            else:
+                false_positive += 1
+        if expected is not None and actual != expected:
+            false_negative += 1
+
+    assert static_cases >= 30
+    precision = true_positive / (true_positive + false_positive)
+    recall = true_positive / (true_positive + false_negative)
+    print(f"\n정적 import: {static_cases}건, TP={true_positive}, FP={false_positive}, FN={false_negative}, "
+          f"precision={precision:.2%}, recall={recall:.2%}")
+    assert precision >= 0.95
