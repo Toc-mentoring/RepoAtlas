@@ -31,7 +31,7 @@ uv run --no-dev python -m worker.main
 uv run --no-dev python -m worker.main --once
 ```
 
-백엔드는 `repositories`에 공개 저장소의 정규 URL·소유자·이름·기본 브랜치를 저장하고, `analysis_runs`에 해당 `repository_id`, 고정된 40자리 `commit_sha`, `status='queued'`를 등록해야 합니다. 현재 저장소에는 이를 제공할 FastAPI 엔드포인트가 아직 없습니다. 같은 SHA의 진행 중·완료 작업 중복은 DB 인덱스가 막으며, 재사용 판단은 백엔드가 담당합니다.
+백엔드는 `repositories`에 공개 저장소의 정규 URL·소유자·이름·기본 브랜치를 저장하고, `analysis_runs`에 해당 `repository_id`, 고정된 40자리 `commit_sha`, `status='queued'`를 등록합니다. 같은 SHA의 진행 중·완료 작업 중복은 DB 인덱스가 막으며, 재사용 판단은 백엔드가 담당합니다. 현재 분석 요청 API는 기본 브랜치 HEAD를 사용하며 요청 본문의 SHA는 반영하지 않습니다.
 
 Worker는 `queued → fetching → parsing → resolving → completed/partial/failed` 상태를 갱신하고 결과를 하나의 트랜잭션으로 저장합니다. 기본 heartbeat는 5초, 중단 판단은 45초이며 작업당 최대 두 번 점유합니다. `--poll-seconds`, `--stale-seconds`로 조회 주기와 중단 판단 시간을 조정할 수 있습니다. `--once`는 작업 실패 시 종료 코드 1을 반환합니다.
 
@@ -44,3 +44,13 @@ export TEST_DATABASE_URL='postgresql+psycopg://repoatlas:비밀번호@localhost:
 export REPOATLAS_LIVE_TESTS=1
 uv run pytest worker/tests/test_live_github.py
 ```
+
+이 테스트는 고정 커밋의 공개 저장소 세 곳을 분석합니다. DB 테스트에서는 임시 스키마를 생성하므로 전용 테스트 DB와 스키마 생성 권한이 필요합니다. `worker/tests/test_api_integration.py`는 작은 로컬 ZIP과 가짜 GitHub 메타데이터를 사용해 API 요청, Worker의 DB 저장, 3종 필수 그래프 조회를 검증합니다.
+
+### 정적 import 정확도
+
+```bash
+uv run pytest worker/tests/test_import_accuracy.py::test_static_import_precision_and_recall -q -s
+```
+
+고정 fixture의 정적 import 43건에서 TP 28, FP 0, FN 0으로 precision 100%, recall 100%입니다. precision은 올바른 내부 파일 연결 수 / 생성한 내부 파일 연결 수이고, recall은 올바른 내부 파일 연결 수 / fixture에서 내부 연결이 기대되는 수입니다. 잘못된 대상에 연결한 경우 FP와 FN에 모두 포함합니다. 동적 import는 측정에서 제외하며, 모호하거나 외부·미해결로 표시된 사례는 정답 내부 연결로 간주하지 않습니다. 이 수치는 해당 fixture에 한정되며 실제 저장소 전체의 정확도를 뜻하지 않습니다.

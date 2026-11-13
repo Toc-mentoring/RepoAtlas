@@ -1,4 +1,5 @@
 import stat
+import time
 import zipfile
 
 import pytest
@@ -70,6 +71,26 @@ def test_resource_limits_and_large_source_warning(tmp_path):
     nodes, warnings = index_archive(path, "project", ArchiveLimits(max_source_file_bytes=5))
     assert next(node for node in nodes if node.path == "a.py").parse_status == "skipped"
     assert warnings == ["File exceeds analysis size limit: a.py"]
+
+
+def test_rejects_invalid_archive(tmp_path):
+    path = tmp_path / "invalid.zip"
+    path.write_bytes(b"not a zip archive")
+    with pytest.raises(AnalysisError) as error:
+        index_archive(path, "project", ArchiveLimits())
+    assert error.value.code == "INVALID_ARCHIVE"
+
+
+def test_rejects_excessive_compression_ratio(tmp_path):
+    path = archive(tmp_path, [("project/large.py", b"x" * 1_000_001)])
+    with pytest.raises(LimitExceeded, match="compression ratio"):
+        index_archive(path, "project", ArchiveLimits())
+
+
+def test_expired_deadline_stops_indexing(tmp_path):
+    path = archive(tmp_path, [("project/a.py", b"pass")])
+    with pytest.raises(LimitExceeded, match="time limit"):
+        index_archive(path, "project", ArchiveLimits(), deadline=time.monotonic() - 1)
 
 
 def test_rejects_archive_with_multiple_roots(tmp_path):
