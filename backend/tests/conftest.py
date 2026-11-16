@@ -29,6 +29,7 @@ class FakeGitHub:
     def __init__(self):
         self.repos = {("example-org", "sample-web"): GitHubRepository("example-org", "sample-web", "main")}
         self.head_sha = HEAD_SHA
+        self.known_shas = {HEAD_SHA, "a" * 40}
         self.calls = 0
 
     def get_repository(self, ref):
@@ -41,6 +42,13 @@ class FakeGitHub:
     def get_branch_head_sha(self, ref, branch):
         self.calls += 1
         return self.head_sha
+
+    
+    def get_commit_sha(self, ref, sha):
+        self.calls += 1
+        if sha not in self.known_shas:
+            raise ApiError(422, "INVALID_COMMIT_SHA", "not found")
+        return sha
 
 
 @pytest.fixture

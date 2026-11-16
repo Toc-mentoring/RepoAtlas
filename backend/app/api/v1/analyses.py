@@ -15,6 +15,7 @@ from backend.app.schemas.analysis import (
     AnalysisDetail,
     AnalysisListItem,
     AnalysisListResponse,
+    AnalysisRequest,
 )
 from backend.app.services.github import GitHubClient, RepoRef
 
@@ -65,14 +66,21 @@ def _accepted(run: AnalysisRun, reused: bool) -> AnalysisAccepted:
 def request_analysis(
     repo_id: UUID,
     response: Response,
+    body: AnalysisRequest | None = None,
     db: Session = Depends(get_db),
     github: GitHubClient = Depends(get_github_client),
 ) -> AnalysisAccepted:
     # ① 등록된 저장소인지 확인
     repo = _get_repository_or_404(db, repo_id)
 
-    # ② 기본 브랜치의 지금 커밋(SHA)을 GitHub에서 받아 고정
-    commit_sha = github.get_branch_head_sha(RepoRef(repo.owner, repo.name), repo.default_branch)
+    # ② 분석할 커밋(SHA) 정하기
+    ref = RepoRef(repo.owner, repo.name)
+    if body is not None and body.commit_sha is not None:
+        # 사용자가 SHA를 줬으면 → 그 커밋이 진짜 있는지 GitHub에 확인
+        commit_sha = github.get_commit_sha(ref, body.commit_sha.lower())
+    else:
+        # 안 줬으면 → 기본 브랜치의 최신 커밋
+        commit_sha = github.get_branch_head_sha(ref, repo.default_branch)
 
     # ③ 같은 커밋으로 진행 중이거나 끝난 분석이 있으면 재사용
     existing = _find_reusable_run(db, repo.id, commit_sha)

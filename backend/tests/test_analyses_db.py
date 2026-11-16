@@ -95,3 +95,52 @@ def test_not_found_errors(api):
     missing_run = api.client.get(f"/api/v1/analyses/{uuid4()}")
     assert missing_run.status_code == 404
     assert missing_run.json()["error"]["code"] == "ANALYSIS_NOT_FOUND"
+
+
+def test_request_analysis_with_commit_sha_uses_that_commit(api):
+    repo = register(api)
+
+    response = api.client.post(
+        f"/api/v1/repositories/{repo['id']}/analyses",
+        json={"commit_sha": "A" * 40},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["commit_sha"] == "a" * 40
+
+
+def test_request_analysis_rejects_bad_sha_format(api):
+    repo = register(api)
+
+    response = api.client.post(
+        f"/api/v1/repositories/{repo['id']}/analyses",
+        json={"commit_sha": "hello"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_request_analysis_rejects_unknown_commit(api):
+    repo = register(api)
+
+    response = api.client.post(
+        f"/api/v1/repositories/{repo['id']}/analyses",
+        json={"commit_sha": "b" * 40},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_COMMIT_SHA"
+
+
+def test_same_commit_sha_is_reused(api):
+    repo = register(api)
+    url = f"/api/v1/repositories/{repo['id']}/analyses"
+
+    first = api.client.post(url, json={"commit_sha": "a" * 40})
+    again = api.client.post(url, json={"commit_sha": "a" * 40})
+
+    assert first.status_code == 202
+    assert again.status_code == 200
+    assert again.json()["reused"] is True
+    assert again.json()["run_id"] == first.json()["run_id"]
