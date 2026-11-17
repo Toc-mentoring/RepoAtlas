@@ -4,6 +4,8 @@ from uuid import uuid4
 
 from sqlalchemy import text
 
+from backend.app.api.v1 import analyses as analyses_api
+
 HEAD_SHA = "0123456789abcdef0123456789abcdef01234567"
 
 
@@ -163,3 +165,35 @@ def test_list_analyses_pages_with_cursor(api):
     second = api.client.get(f"{url}?limit=2&cursor={first['next_cursor']}").json()
     assert len(second["items"]) == 1
     assert second["next_cursor"] is None
+
+
+def test_concurrent_same_request_keeps_one_run(api, monkeypatch):
+    repo = register(api)
+    url = f"/api/v1/repositories/{repo['id']}/analyses"
+
+    # 손님 1: 정상 접수 → 장부에 1번 적힘
+    first = api.client.post(url).json()
+
+    # 연기 지시: 다음 한 번만 "장부에 없네?"라고 못 본 척하기
+    real_find = analyses_api._find_reusable_run
+    calls = {"n": 0}
+
+    def pretend_not_found(*args):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None
+        return real_find(*args)
+
+    monkeypatch.setattr(analyses_api, "_find_reusable_run", pretend_not_found)
+
+    # 손님 2: 같은 걸 접수 → 장부가 거부 → 1번을 돌려줘야 함
+    second = api.client.post(url)
+
+    assert second.status_code == 200
+    assert second.json()["reused"] is True
+    assert second.json()["run_id"] == first["run_id"]
+
+    # 장부를 세어보면 딱 1개
+    with api.engine.connect() as connection:
+        count = connection.execute(text("SELECT count(*) FROM analysis_runs")).scalar()
+    assert count == 1
