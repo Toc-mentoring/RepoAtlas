@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_db, get_github_client
 from backend.app.api.errors import ApiError
+from backend.app.api.pagination import decode_cursor, page
 from backend.app.models import AnalysisRun, Repository
 from backend.app.schemas.analysis import (
     AnalysisAccepted,
@@ -109,16 +110,26 @@ def request_analysis(
 def list_analyses(
     repo_id: UUID,
     limit: int = Query(20, ge=1, le=100),
+    cursor: str | None = Query(None, max_length=200),
     db: Session = Depends(get_db),
 ) -> AnalysisListResponse:
     _get_repository_or_404(db, repo_id)
+
+    # ① 책갈피 풀기
+    offset = decode_cursor(cursor)
+
+    # ② 건너뛰고, 하나 더 읽기
     stmt = (
         select(AnalysisRun)
         .where(AnalysisRun.repository_id == repo_id)
         .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
-        .limit(limit)
+        .offset(offset)
+        .limit(limit + 1)
     )
-    runs = db.execute(stmt).scalars().all()
+
+    # ③ limit개만 남기고 다음 책갈피 만들기
+    runs, next_cursor = page(db.execute(stmt).scalars().all(), offset, limit)
+
     items = [
         AnalysisListItem(
             id=run.id,
@@ -129,8 +140,7 @@ def list_analyses(
         )
         for run in runs
     ]
-    # TODO: cursor 페이지 넘기기는 다음 작업에서 구현한다.
-    return AnalysisListResponse(items=items, next_cursor=None)
+    return AnalysisListResponse(items=items, next_cursor=next_cursor)
 
 
 @analyses_router.get("/{run_id}", response_model=AnalysisDetail)

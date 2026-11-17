@@ -144,3 +144,22 @@ def test_same_commit_sha_is_reused(api):
     assert again.status_code == 200
     assert again.json()["reused"] is True
     assert again.json()["run_id"] == first.json()["run_id"]
+
+    
+
+def test_list_analyses_pages_with_cursor(api):
+    repo = register(api)
+    url = f"/api/v1/repositories/{repo['id']}/analyses"
+    api.github.known_shas.add("c" * 40)
+
+    # 준비: 서로 다른 커밋으로 분석 3개 만들기
+    for sha in (HEAD_SHA, "a" * 40, "c" * 40):
+        api.client.post(url, json={"commit_sha": sha})
+
+    first = api.client.get(f"{url}?limit=2").json()
+    assert len(first["items"]) == 2
+    assert first["next_cursor"] is not None
+
+    second = api.client.get(f"{url}?limit=2&cursor={first['next_cursor']}").json()
+    assert len(second["items"]) == 1
+    assert second["next_cursor"] is None
