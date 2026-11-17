@@ -1,3 +1,5 @@
+import { ApiError } from "./errors";
+export { ApiError } from "./errors";
 export type Status =
   | "queued"
   | "fetching"
@@ -37,19 +39,6 @@ export type Analysis = {
   finished_at: string | null;
 };
 type Database = { repositories: Repository[]; runs: Analysis[] };
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public error: {
-      code: string;
-      message: string;
-      details: Record<string, unknown>;
-      request_id: string;
-    },
-  ) {
-    super(error.message);
-  }
-}
 const key = "repoatlas.mock.v2";
 const now = () => new Date().toISOString();
 const uuid = () => crypto.randomUUID();

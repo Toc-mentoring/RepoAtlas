@@ -26,7 +26,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:backend": "vite --mode backend --host 127.0.0.1",
+    "check:backend": "node scripts/check-backend.mjs",
     "build": "tsc --noEmit && vite build",
+    "build:backend": "tsc --noEmit && vite build --mode backend",
     "test": "vitest run"
   }
 }

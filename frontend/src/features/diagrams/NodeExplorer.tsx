@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
   ChevronRight,
@@ -133,6 +133,18 @@ export function NodeExplorer({
   const [expanded, setExpanded] = useState<Set<string>>(
     () => new Set(["path:."]),
   );
+  useEffect(() => {
+    if (!selected) return;
+    const ancestors = (items: Item[], path: string[]): string[] | undefined => {
+      for (const item of items) {
+        if (item.node?.id === selected) return path;
+        const found = ancestors(item.children, [...path, item.key]);
+        if (found) return found;
+      }
+    };
+    const keys = ancestors(tree, []);
+    if (keys) setExpanded((current) => new Set([...current, ...keys]));
+  }, [tree, selected]);
   const query = search.trim().toLowerCase();
   const matches = (item: Item) =>
     !!item.node &&

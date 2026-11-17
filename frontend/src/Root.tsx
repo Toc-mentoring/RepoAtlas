@@ -19,9 +19,20 @@ import {
   Sun,
   Moon,
 } from "lucide-react";
-import { ApiError, type Status } from "./api/mock";
+import { type Status } from "./api/mock";
+import { Feedback, MoreButton } from "./components/Feedback";
+import { nextPage, pageItems } from "./api/pages";
 import { api, isMock } from "./api/client";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  AnalysisTarget,
+  useBackendCapabilities,
+} from "./components/AnalysisTarget";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  useInfiniteQuery,
+} from "@tanstack/react-query";
 import { DiagramChooser, GraphPage } from "./features/diagrams/GraphPage";
 
 import "./style.css";
@@ -36,10 +47,6 @@ const labels: Record<Status, string> = {
 };
 const terminal = (status: Status) =>
   ["completed", "partial", "failed"].includes(status);
-const message = (e: unknown) =>
-  e instanceof ApiError
-    ? `${e.error.message} (${e.error.code} · ${e.error.request_id})`
-    : "요청을 처리하지 못했습니다. 다시 시도해 주세요.";
 function Shell({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">(() => {
     const saved = localStorage.getItem("repoatlas.theme");
@@ -95,33 +102,40 @@ function Shell({ children }: { children: React.ReactNode }) {
 function StatusBadge({ status }: { status: Status }) {
   return <span className={"status " + status}>{labels[status]}</span>;
 }
-function ErrorBox({ text, retry }: { text: string; retry?: () => void }) {
-  return (
-    <div className="notice fail" role="alert">
-      <AlertTriangle size={16} />
-      {text}{" "}
-      {retry && (
-        <button className="back" onClick={retry}>
-          다시 시도
-        </button>
-      )}
-    </div>
-  );
-}
 function Home() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [url, setUrl] = useState("");
   const [commitSha, setCommitSha] = useState("");
-  const list = useQuery({
+  const capabilities = useBackendCapabilities();
+  const list = useInfiniteQuery({
     queryKey: ["repositories"],
-    queryFn: api.listRepositories,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.listRepositories({
+        cursor: pageParam,
+        ...(capabilities.data?.repositoryPagination === false
+          ? { limit: 100 }
+          : {}),
+      }),
+    enabled: !capabilities.isPending,
+    getNextPageParam: nextPage,
   });
+  const repositories = pageItems(list.data?.pages);
+  const [registeredId, setRegisteredId] = useState<string | null>(null);
   const registration = useMutation({
     mutationFn: async () => {
+      if (!capabilities.data || capabilities.isError)
+        throw new Error("서버 지원 기능을 확인한 뒤 다시 시도해 주세요.");
       const repo = await api.createRepository(url.trim());
+      setRegisteredId(repo.id);
       await queryClient.invalidateQueries({ queryKey: ["repositories"] });
-      return api.startAnalysis(repo.id, commitSha.trim().toLowerCase());
+      return api.startAnalysis(
+        repo.id,
+        capabilities.data.commitSha
+          ? commitSha.trim().toLowerCase()
+          : undefined,
+      );
     },
     onSuccess: (run) => {
       queryClient.invalidateQueries({ queryKey: ["repositories"] });
@@ -142,7 +156,9 @@ function Home() {
         <span className="count">
           {list.isLoading
             ? "불러오는 중"
-            : `${list.data?.items.length ?? 0}개 저장소`}
+            : list.isError && !repositories.length
+              ? "조회 실패"
+              : `${repositories.length}개 저장소 표시 중`}
         </span>
       </div>
       <section className="add-card">
@@ -151,7 +167,11 @@ function Home() {
         </div>
         <div className="add-content">
           <h2>새 저장소 분석하기</h2>
-          <p>공개 GitHub 저장소 주소와 분석할 커밋 해시를 입력해 주세요.</p>
+          <p>
+            {capabilities.data?.commitSha
+              ? "공개 GitHub 저장소 주소와 분석할 커밋 해시를 입력해 주세요."
+              : "공개 GitHub 저장소의 기본 브랜치를 분석합니다."}
+          </p>
           <form onSubmit={register}>
             <label className="field">
               <span>GitHub 저장소 URL</span>
@@ -169,35 +189,35 @@ function Home() {
                 />
               </div>
             </label>
-            <label className="field">
-              <span>커밋 해시</span>
-              <div className="input-wrap">
-                <GitBranch size={17} />
-                <input
-                  value={commitSha}
-                  onChange={(e) => {
-                    setCommitSha(e.target.value);
-                    registration.reset();
-                  }}
-                  placeholder="40자리 커밋 SHA"
-                  aria-label="커밋 해시"
-                  pattern="[a-fA-F0-9]{40}"
-                  minLength={40}
-                  maxLength={40}
-                  required
-                  spellCheck={false}
-                />
-              </div>
-            </label>
-            <button className="primary" disabled={registration.isPending}>
+            <AnalysisTarget
+              capabilities={capabilities}
+              sha={commitSha}
+              onChange={(value) => {
+                setCommitSha(value);
+                registration.reset();
+              }}
+            />
+            <button
+              className="primary"
+              disabled={
+                registration.isPending ||
+                !capabilities.data ||
+                capabilities.isError
+              }
+            >
               {registration.isPending ? "요청 중…" : "분석 요청"}{" "}
               <ArrowRight size={16} />
             </button>
           </form>
           {registration.isError && (
-            <p className="error" role="alert">
-              {message(registration.error)}
-            </p>
+            <>
+              <Feedback error={registration.error} />
+              {registeredId && (
+                <Link to={`/repositories/${registeredId}`}>
+                  등록된 저장소와 분석 이력 확인
+                </Link>
+              )}
+            </>
           )}
           <small>
             {isMock
@@ -211,14 +231,19 @@ function Home() {
         <p>등록한 저장소와 분석 이력을 확인하세요.</p>
       </div>
       {list.isError && (
-        <ErrorBox text={message(list.error)} retry={() => list.refetch()} />
+        <Feedback
+          error={list.error}
+          retry={() =>
+            list.isFetchNextPageError ? list.fetchNextPage() : list.refetch()
+          }
+        />
       )}
       <div className="repo-list">
         {list.isLoading ? (
           <div className="empty" role="status">
             저장소를 불러오는 중입니다…
           </div>
-        ) : !list.data?.items.length ? (
+        ) : !list.isError && !repositories.length ? (
           <div className="empty">등록된 저장소가 없습니다.</div>
         ) : (
           <>
@@ -228,7 +253,7 @@ function Home() {
               <span>분석 이력</span>
               <span />
             </div>
-            {list.data.items.map((r) => (
+            {repositories.map((r) => (
               <div className="repo-row" key={r.id}>
                 <div className="repo-name">
                   <span className="repo-icon">
@@ -253,6 +278,17 @@ function Home() {
           </>
         )}
       </div>
+      {capabilities.data?.repositoryPagination === false && (
+        <p className="muted">
+          현재 서버는 저장소 페이지 넘기기를 지원하지 않아 최근 최대 100개를
+          표시합니다.
+        </p>
+      )}
+      <MoreButton
+        more={!!list.hasNextPage}
+        pending={list.isFetching}
+        load={() => list.fetchNextPage()}
+      />
     </main>
   );
 }
@@ -261,16 +297,36 @@ function RepositoryPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [commitSha, setCommitSha] = useState("");
+  const capabilities = useBackendCapabilities();
   const repo = useQuery({
     queryKey: ["repository", repoId],
     queryFn: () => api.getRepository(repoId),
   });
-  const runs = useQuery({
+  const runs = useInfiniteQuery({
     queryKey: ["analyses", repoId],
-    queryFn: () => api.listAnalyses(repoId),
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) =>
+      api.listAnalyses(repoId, {
+        cursor: pageParam,
+        ...(capabilities.data?.historyPagination === false
+          ? { limit: 100 }
+          : {}),
+      }),
+    enabled: !capabilities.isPending,
+    getNextPageParam: nextPage,
   });
+  const analyses = pageItems(runs.data?.pages);
   const start = useMutation({
-    mutationFn: () => api.startAnalysis(repoId, commitSha.trim().toLowerCase()),
+    mutationFn: () => {
+      if (!capabilities.data || capabilities.isError)
+        throw new Error("서버 지원 기능을 확인한 뒤 다시 시도해 주세요.");
+      return api.startAnalysis(
+        repoId,
+        capabilities.data.commitSha
+          ? commitSha.trim().toLowerCase()
+          : undefined,
+      );
+    },
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ["analyses", repoId] });
       queryClient.invalidateQueries({ queryKey: ["repositories"] });
@@ -286,7 +342,7 @@ function RepositoryPage() {
   if (repo.isError || !repo.data)
     return (
       <main className="home">
-        <ErrorBox text={message(repo.error)} retry={() => repo.refetch()} />
+        <Feedback error={repo.error} retry={() => repo.refetch()} />
         <Link className="back" to="/">
           ← 저장소 목록
         </Link>
@@ -310,7 +366,9 @@ function RepositoryPage() {
         <button
           className="primary action"
           form="analysis-form"
-          disabled={start.isPending}
+          disabled={
+            start.isPending || !capabilities.data || capabilities.isError
+          }
         >
           {start.isPending ? "요청 중…" : "분석 요청"} <ArrowRight size={16} />
         </button>
@@ -323,26 +381,20 @@ function RepositoryPage() {
           if (!start.isPending) start.mutate();
         }}
       >
-        <label htmlFor="commit-sha">커밋 해시</label>
-        <div className="input-wrap">
-          <GitBranch size={17} />
-          <input
-            id="commit-sha"
-            value={commitSha}
-            onChange={(e) => setCommitSha(e.target.value)}
-            placeholder="40자리 커밋 SHA"
-            pattern="[a-fA-F0-9]{40}"
-            minLength={40}
-            maxLength={40}
-            required
-            spellCheck={false}
-          />
-        </div>
-        <small>분석할 커밋의 전체 SHA 40자리를 입력하세요.</small>
+        <AnalysisTarget
+          capabilities={capabilities}
+          sha={commitSha}
+          onChange={setCommitSha}
+        />
       </form>
-      {start.isError && <ErrorBox text={message(start.error)} />}{" "}
+      {start.isError && <Feedback error={start.error} />}{" "}
       {runs.isError && (
-        <ErrorBox text={message(runs.error)} retry={() => runs.refetch()} />
+        <Feedback
+          error={runs.error}
+          retry={() =>
+            runs.isFetchNextPageError ? runs.fetchNextPage() : runs.refetch()
+          }
+        />
       )}{" "}
       {isMock && (
         <div className="notice">
@@ -355,12 +407,12 @@ function RepositoryPage() {
         <p>분석을 선택하면 진행 상태와 결과를 확인할 수 있습니다.</p>
       </div>
       <div className="repo-list">
-        {!runs.data?.items.length ? (
+        {!runs.isError && !analyses.length ? (
           <div className="empty">
             아직 분석 이력이 없습니다. 분석 요청을 눌러 시작하세요.
           </div>
         ) : (
-          runs.data.items.map((r) => (
+          analyses.map((r) => (
             <div className="repo-row" key={r.id}>
               <div className="repo-name">
                 <span className="repo-icon">
@@ -382,6 +434,17 @@ function RepositoryPage() {
           ))
         )}
       </div>
+      {capabilities.data?.historyPagination === false && (
+        <p className="muted">
+          현재 서버는 분석 이력 페이지 넘기기를 지원하지 않아 최근 최대 100개를
+          표시합니다.
+        </p>
+      )}
+      <MoreButton
+        more={!!runs.hasNextPage}
+        pending={runs.isFetching}
+        load={() => runs.fetchNextPage()}
+      />
     </main>
   );
 }
@@ -391,7 +454,11 @@ function RunPage() {
     queryKey: ["analysis", runId],
     queryFn: () => api.getAnalysis(runId),
     refetchInterval: (query) =>
-      query.state.data && !terminal(query.state.data.status) ? 2000 : false,
+      !query.state.error &&
+      query.state.data &&
+      !terminal(query.state.data.status)
+        ? 2000
+        : false,
     retry: false,
   });
   const repo = useQuery({
@@ -409,7 +476,7 @@ function RunPage() {
   if (!run.data)
     return (
       <main className="home">
-        <ErrorBox text={message(run.error)} retry={() => run.refetch()} />
+        <Feedback error={run.error} retry={() => run.refetch()} />
         <Link className="back" to="/">
           ← 저장소 목록
         </Link>
@@ -433,8 +500,11 @@ function RunPage() {
         </div>
         <StatusBadge status={value.status} />
       </div>
+      {repo.isError && (
+        <Feedback error={repo.error} retry={() => repo.refetch()} />
+      )}
       {run.isError && (
-        <ErrorBox text={message(run.error)} retry={() => run.refetch()} />
+        <Feedback error={run.error} retry={() => run.refetch()} />
       )}
       <section className="run-card">
         <div className="progress-head">
@@ -454,11 +524,16 @@ function RunPage() {
           <span>→</span> 완료
         </div>
       </section>
-      {value.status === "partial" && (
+      {(value.status === "partial" || value.warnings.length > 0) && (
         <div className="notice">
           <AlertTriangle size={16} />
           <div>
-            <b>일부 분석이 완료되지 않았습니다.</b> {value.warnings.join(" ")}
+            <b>
+              {value.status === "partial"
+                ? "일부 분석이 완료되지 않았습니다."
+                : "분석 경고"}
+            </b>{" "}
+            {value.warnings.join(" ")}
           </div>
         </div>
       )}

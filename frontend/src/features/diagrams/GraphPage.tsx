@@ -9,6 +9,8 @@ import {
   Position,
   useNodesState,
   useEdgesState,
+  useNodesInitialized,
+  useReactFlow,
   type Node,
   type Edge,
 } from "@xyflow/react";
@@ -16,7 +18,11 @@ import dagre from "@dagrejs/dagre";
 import { ExternalLink, AlertTriangle } from "lucide-react";
 import { NodeExplorer } from "./NodeExplorer";
 import { api, isMock } from "../../api/client";
-import { ApiError } from "../../api/mock";
+import { Feedback } from "../../components/Feedback";
+import { errorMessage } from "../../api/errors";
+import { RunSearch } from "./RunSearch";
+import { FilePicker } from "./FilePicker";
+import { GraphFilters } from "./GraphFilters";
 import type { DiagramOptions, DiagramType, GraphDTO } from "../../api/types";
 import "@xyflow/react/dist/style.css";
 const names: Record<DiagramType, string> = {
@@ -26,31 +32,25 @@ const names: Record<DiagramType, string> = {
   architecture: "아키텍처",
   erd: "ERD",
 };
-function text(e: unknown) {
-  return e instanceof ApiError
-    ? e.message
-    : "요청을 처리하지 못했습니다. 다시 시도해 주세요.";
-}
+const text = errorMessage;
 export function DiagramChooser({ runId }: { runId: string }) {
+  const [pickFile, setPickFile] = useState(false);
   const navigate = useNavigate();
   const catalog = useQuery({
     queryKey: ["catalog", runId],
     queryFn: () => api.getCatalog(runId),
   });
   const open = useMutation({
-    mutationFn: async (type: DiagramType) => {
+    mutationFn: async ({
+      type,
+      fileId,
+    }: {
+      type: DiagramType;
+      fileId?: number;
+    }) => {
       const options: DiagramOptions = { max_nodes: 150 };
       if (type === "symbols") {
-        const directory = await api.createDiagram(runId, "directory", {
-          root_path: ".",
-          depth: 8,
-          max_nodes: 300,
-        });
-        const file = directory.nodes.find((node) =>
-          node.id.startsWith("file:"),
-        );
-        if (!file) throw new Error("심볼을 표시할 파일을 찾지 못했습니다.");
-        options.file_id = Number(file.id.slice(5));
+        options.file_id = fileId;
       } else if (type === "directory" || type === "dependency") {
         options.root_path = ".";
         options.depth = 2;
@@ -64,16 +64,16 @@ export function DiagramChooser({ runId }: { runId: string }) {
       <div className="section-head">
         <h1>다이어그램</h1>
         <p>
-          확인할 다이어그램을 선택하세요. 심볼은 첫 번째 파일을 기준으로
-          표시됩니다.
+          확인할 다이어그램을 선택하세요. 심볼은 파일을 선택한 뒤 표시합니다.
         </p>
       </div>
       {catalog.isLoading && <p role="status">지원 유형을 불러오는 중입니다…</p>}
       {catalog.isError && (
-        <p role="alert">
-          {text(catalog.error)}{" "}
-          <button onClick={() => catalog.refetch()}>다시 시도</button>
-        </p>
+        <Feedback
+          error={catalog.error}
+          retry={() => catalog.refetch()}
+          runId={runId}
+        />
       )}
       {catalog.data && (
         <div className="diagram-catalog">
@@ -81,7 +81,11 @@ export function DiagramChooser({ runId }: { runId: string }) {
             <button
               key={item.type}
               disabled={item.availability === "unsupported" || open.isPending}
-              onClick={() => open.mutate(item.type)}
+              onClick={() =>
+                item.type === "symbols"
+                  ? setPickFile(true)
+                  : open.mutate({ type: item.type })
+              }
               title={item.reason ?? undefined}
             >
               {names[item.type]}{" "}
@@ -96,12 +100,16 @@ export function DiagramChooser({ runId }: { runId: string }) {
           ))}
         </div>
       )}
-      {open.isPending && <p role="status">다이어그램을 불러오는 중입니다…</p>}
-      {open.isError && (
-        <p className="error" role="alert">
-          {open.error instanceof Error ? open.error.message : text(open.error)}
-        </p>
+      {pickFile && (
+        <FilePicker
+          runId={runId}
+          pending={open.isPending}
+          select={(fileId) => open.mutate({ type: "symbols", fileId })}
+        />
       )}
+      {!pickFile && <RunSearch runId={runId} />}
+      {open.isPending && <p role="status">다이어그램을 불러오는 중입니다…</p>}
+      {open.isError && <Feedback error={open.error} runId={runId} />}
     </section>
   );
 }
@@ -159,7 +167,40 @@ function layout(
     })),
   };
 }
+function safeSource(value?: string) {
+  if (!value) return false;
+  try {
+    const u = new URL(value);
+    return (
+      u.protocol === "https:" &&
+      u.hostname === "github.com" &&
+      /^\/[^/]+\/[^/]+\/(blob|tree)\/[a-f0-9]{40}\//i.test(u.pathname)
+    );
+  } catch {
+    return false;
+  }
+}
 type DiagramParent = { id: string; previous?: DiagramParent };
+function FitGraph({
+  revision,
+  focus,
+}: {
+  revision: string;
+  focus: string | null;
+}) {
+  const ready = useNodesInitialized();
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    if (ready)
+      void fitView({
+        padding: 0.2,
+        minZoom: 0.02,
+        maxZoom: 1,
+        ...(focus ? { nodes: [{ id: focus }] } : {}),
+      });
+  }, [ready, revision, focus, fitView]);
+  return null;
+}
 export function GraphPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
@@ -171,6 +212,15 @@ export function GraphPage() {
   });
   const [selected, setSelected] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const focus = (
+    location.state as { focus?: { id: string; path: string } } | null
+  )?.focus;
+  useEffect(() => {
+    setSelected(focus?.id || null);
+    setSearch("");
+    setPanels("graph");
+    create.reset();
+  }, [id]);
   const [panels, setPanels] = useState<"graph" | "tree" | "details">("graph");
   const create = useMutation({
     mutationFn: ({
@@ -187,13 +237,39 @@ export function GraphPage() {
       });
     },
   });
-  const rendered = useMemo(
+  const positions = useMemo(
     () =>
-      graph.data
-        ? layout(graph.data, search, selected)
-        : { nodes: [], edges: [] },
-    [graph.data, search, selected],
+      graph.data ? layout(graph.data, "", null) : { nodes: [], edges: [] },
+    [graph.data],
   );
+  const rendered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const labels = new Map(
+      graph.data?.nodes.map((n) => [
+        n.id,
+        (n.label + " " + (n.data.path || "")).toLowerCase(),
+      ]),
+    );
+    return {
+      nodes: positions.nodes.map((n) => ({
+        ...n,
+        selected: n.id === selected,
+        className:
+          n.className + (q && !labels.get(n.id)?.includes(q) ? " dim" : ""),
+      })),
+      edges: positions.edges.map((e) => ({
+        ...e,
+        style: {
+          ...e.style,
+          strokeWidth: e.source === selected || e.target === selected ? 3 : 1.5,
+          opacity:
+            selected && e.source !== selected && e.target !== selected
+              ? 0.3
+              : 1,
+        },
+      })),
+    };
+  }, [positions, search, selected, graph.data]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   useEffect(() => {
@@ -209,10 +285,7 @@ export function GraphPage() {
   if (graph.isError || !graph.data)
     return (
       <main className="home">
-        <div className="notice fail" role="alert">
-          {text(graph.error)}{" "}
-          <button onClick={() => graph.refetch()}>다시 시도</button>
-        </div>
+        <Feedback error={graph.error} retry={() => graph.refetch()} />
         <Link to="/">저장소 목록</Link>
       </main>
     );
@@ -245,11 +318,49 @@ export function GraphPage() {
           </p>
         </div>
         <div className="mobile-panels">
-          <button onClick={() => setPanels("tree")}>탐색기</button>
-          <button onClick={() => setPanels("graph")}>그래프</button>
-          <button onClick={() => setPanels("details")}>상세</button>
+          <button
+            aria-pressed={panels === "tree"}
+            onClick={() => setPanels("tree")}
+          >
+            탐색기
+          </button>
+          <button
+            aria-pressed={panels === "graph"}
+            onClick={() => setPanels("graph")}
+          >
+            그래프
+          </button>
+          <button
+            aria-pressed={panels === "details"}
+            onClick={() => setPanels("details")}
+          >
+            상세
+          </button>
         </div>
       </div>
+      <div className="workspace-tools">
+        <details>
+          <summary>분석 전체 검색</summary>
+          <RunSearch runId={data.run_id} />
+        </details>
+        <GraphFilters
+          key={data.diagram_id}
+          graph={data}
+          pending={create.isPending}
+          apply={(options) => create.mutate({ type: data.type, options })}
+        />
+      </div>
+      {focus && !data.nodes.some((n) => n.id === focus.id) && (
+        <div className="notice" role="status">
+          선택한 항목 {focus.path}이 서버의 표시 범위에 포함되지 않았습니다.
+          최대 300개 노드 제한으로 전체 항목을 표시할 수 없는 경우입니다.
+        </div>
+      )}
+      {data.availability === "partial" && (
+        <div className="notice" role="status">
+          부분 지원 다이어그램입니다. 경고와 근거를 확인해 주세요.
+        </div>
+      )}
       {(data.warnings.length > 0 || data.truncated || data.has_more) && (
         <div className="notice">
           <AlertTriangle size={16} />
@@ -258,10 +369,11 @@ export function GraphPage() {
             "결과가 잘렸습니다. 경로 또는 깊이를 줄여 다시 생성하세요."}
         </div>
       )}
-      {create.isError && (
-        <div className="notice fail" role="alert">
-          {text(create.error)}
-        </div>
+      {create.isError && <Feedback error={create.error} runId={data.run_id} />}
+      {create.isPending && (
+        <p className="workspace-tools" role="status">
+          다이어그램을 불러오는 중입니다…
+        </p>
       )}
       <div className={`viewer selected-panel-${panels}`}>
         <aside className="explorer">
@@ -271,7 +383,11 @@ export function GraphPage() {
             selected={selected}
             search={search}
             onSearch={setSearch}
-            onSelect={setSelected}
+            onSelect={(nodeId) => {
+              setSelected(nodeId);
+              if (window.matchMedia("(max-width: 850px)").matches)
+                setPanels("details");
+            }}
           />
         </aside>
         <section className="canvas">
@@ -280,15 +396,27 @@ export function GraphPage() {
             <span>노드 선택 / 드래그 / 확대·축소</span>
           </div>
           <div className="flow">
+            {!data.nodes.length && (
+              <p className="graph-empty" role="status">
+                현재 범위에 표시할 노드가 없습니다. 경로·언어·깊이 필터를 변경해
+                주세요.
+              </p>
+            )}
             <ReactFlow
+              key={data.diagram_id + panels}
               nodes={nodes}
               edges={edges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
-              onNodeClick={(_, node) => setSelected(node.id)}
+              onNodeClick={(_, node) => {
+                setSelected(node.id);
+                if (window.matchMedia("(max-width: 850px)").matches)
+                  setPanels("details");
+              }}
               fitView
-              minZoom={0.15}
+              minZoom={0.02}
             >
+              <FitGraph revision={data.diagram_id} focus={selected} />
               <Background color="var(--graph-dot)" gap={24} />
               <Controls showInteractive={false} />
             </ReactFlow>
@@ -318,6 +446,7 @@ export function GraphPage() {
                     <p className="muted">파일 ID: {fileId}</p>
                     <button
                       className="outline"
+                      disabled={create.isPending}
                       onClick={() =>
                         create.mutate({
                           type: "symbols",
@@ -332,6 +461,7 @@ export function GraphPage() {
                 {active.type === "directory" && (
                   <button
                     className="outline"
+                    disabled={create.isPending}
                     onClick={() =>
                       create.mutate({
                         type: "directory",
@@ -357,6 +487,15 @@ export function GraphPage() {
                       <span>
                         {e.source === active.id ? e.target : e.source}
                       </span>
+                      <small>
+                        {e.data.certainty === "inferred" ? "추론" : "확인됨"}
+                      </small>
+                      {e.data.evidence.map((ev, i) => (
+                        <small key={i}>
+                          {ev.path}
+                          {ev.line ? `:${ev.line}` : ""} · {ev.basis}
+                        </small>
+                      ))}
                     </div>
                   ))}
                 {data.unresolved_references > 0 && (
@@ -365,7 +504,7 @@ export function GraphPage() {
                     만들지 않습니다.
                   </p>
                 )}
-                {active.data.github_url && !isMock ? (
+                {safeSource(active.data.github_url) && !isMock ? (
                   <a
                     className="github"
                     href={active.data.github_url}
