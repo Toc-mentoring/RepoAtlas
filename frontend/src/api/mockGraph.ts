@@ -169,10 +169,15 @@ export async function createGraph(
         path: file.path,
         language: file.language,
       }),
-      n("symbol:101", "function", file.id === 2 ? "App" : "exampleFunction", {
-        path: file.path,
-        line: 12,
-      }),
+      n(
+        `symbol:${100 + file.id}`,
+        "function",
+        file.id === 2 ? "App" : "exampleFunction",
+        {
+          path: file.path,
+          line: 12,
+        },
+      ),
     ];
     edges = [e(nodes[0].id, nodes[1].id, "declares")];
   }
@@ -222,15 +227,51 @@ export async function search(runId: string, q: string) {
   if (q.length < 2 || q.length > 100)
     return fail(422, "INVALID_FILTER", "검색어는 2~100자여야 합니다.");
   return {
-    items: sample
-      .filter((f) => f.path.toLowerCase().includes(q.toLowerCase()))
-      .map((f) => ({
-        kind: "file" as const,
-        id: `file:${f.id}`,
-        label: f.path,
-        path: f.path,
-        line: null,
-      })),
+    items: [
+      ...sample
+        .filter((f) => f.path.toLowerCase().includes(q.toLowerCase()))
+        .map((f) => ({
+          kind: "file" as const,
+          id: `file:${f.id}`,
+          label: f.path,
+          path: f.path,
+          line: null,
+        })),
+      ...sample
+        .filter((f) =>
+          `${f.path} ${f.id === 2 ? "App" : "exampleFunction"}`
+            .toLowerCase()
+            .includes(q.toLowerCase()),
+        )
+        .map((f) => ({
+          kind: "symbol" as const,
+          id: `symbol:${100 + f.id}`,
+          label: f.id === 2 ? "App" : "exampleFunction",
+          path: f.path,
+          line: 12,
+        })),
+    ],
+    next_cursor: null,
+  };
+}
+
+export async function mockSymbols(runId: string, fileId: number) {
+  await ready(runId);
+  const file = sample.find((f) => f.id === fileId);
+  return {
+    items: file
+      ? [
+          {
+            id: 100 + file.id,
+            file_id: file.id,
+            name: file.id === 2 ? "App" : "exampleFunction",
+            kind: "function",
+            start_line: 12,
+            end_line: 18,
+            github_url: "",
+          },
+        ]
+      : [],
     next_cursor: null,
   };
 }
