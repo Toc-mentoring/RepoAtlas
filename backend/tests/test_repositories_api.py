@@ -106,5 +106,5 @@ def test_list_repositories_builds_postgres_query(client_with):
     ))
     assert "FROM repositories" in sql
     assert "ORDER BY repositories.created_at DESC, repositories.id DESC" in sql
-    assert "LIMIT 5" in sql
+    assert "LIMIT 6" in sql
     assert "ILIKE '%%sample%%'" in sql or "ILIKE '%sample%'" in sql

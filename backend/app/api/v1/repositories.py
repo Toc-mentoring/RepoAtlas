@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_db, get_github_client
 from backend.app.api.errors import ApiError
+from backend.app.api.pagination import decode_cursor, page
 from backend.app.models import AnalysisRun, Repository
 from backend.app.schemas.repository import (
     RepositoryCreate,
@@ -103,13 +104,19 @@ def register_repository(
 @router.get("", response_model=RepositoryListResponse)
 def list_repositories(
     limit: int = Query(20, ge=1, le=100),
+    cursor: str | None = Query(None, max_length=200),
     q: str | None = Query(None, max_length=200),
     db: Session = Depends(get_db),
 ) -> RepositoryListResponse:
+    # ① 책갈피를 풀어서 "몇 개 건너뛸지" 알아내기 (처음이면 0)
+    offset = decode_cursor(cursor)
+
+    # ② 건너뛰고, 하나 더(limit + 1) 읽어오는 주문서 만들기
     stmt = (
         select(Repository, _latest_run_id().label("latest_run_id"))
         .order_by(Repository.created_at.desc(), Repository.id.desc())
-        .limit(limit)
+        .offset(offset)
+        .limit(limit + 1)
     )
 
     # q가 있으면 owner 또는 name에 그 글자가 들어간 저장소만 남긴다.
@@ -117,7 +124,8 @@ def list_repositories(
         pattern = f"%{q}%"
         stmt = stmt.where(or_(Repository.owner.ilike(pattern), Repository.name.ilike(pattern)))
 
-    rows = db.execute(stmt).all()
+    # ③ 읽어온 것 중 limit개만 남기고, 더 있으면 다음 책갈피 만들기
+    rows, next_cursor = page(db.execute(stmt).all(), offset, limit)
 
     items = [
         RepositoryListItem(
@@ -129,8 +137,7 @@ def list_repositories(
         )
         for repo, run_id in rows
     ]
-    # TODO: cursor 페이지 넘기기는 다음 작업에서 구현한다.
-    return RepositoryListResponse(items=items, next_cursor=None)
+    return RepositoryListResponse(items=items, next_cursor=next_cursor)
 
 
 @router.get("/{repo_id}", response_model=RepositoryDetail)

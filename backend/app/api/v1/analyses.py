@@ -9,12 +9,14 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.deps import get_db, get_github_client
 from backend.app.api.errors import ApiError
+from backend.app.api.pagination import decode_cursor, page
 from backend.app.models import AnalysisRun, Repository
 from backend.app.schemas.analysis import (
     AnalysisAccepted,
     AnalysisDetail,
     AnalysisListItem,
     AnalysisListResponse,
+    AnalysisRequest,
 )
 from backend.app.services.github import GitHubClient, RepoRef
 
@@ -65,14 +67,21 @@ def _accepted(run: AnalysisRun, reused: bool) -> AnalysisAccepted:
 def request_analysis(
     repo_id: UUID,
     response: Response,
+    body: AnalysisRequest | None = None,
     db: Session = Depends(get_db),
     github: GitHubClient = Depends(get_github_client),
 ) -> AnalysisAccepted:
     # ① 등록된 저장소인지 확인
     repo = _get_repository_or_404(db, repo_id)
 
-    # ② 기본 브랜치의 지금 커밋(SHA)을 GitHub에서 받아 고정
-    commit_sha = github.get_branch_head_sha(RepoRef(repo.owner, repo.name), repo.default_branch)
+    # ② 분석할 커밋(SHA) 정하기
+    ref = RepoRef(repo.owner, repo.name)
+    if body is not None and body.commit_sha is not None:
+        # 사용자가 SHA를 줬으면 → 그 커밋이 진짜 있는지 GitHub에 확인
+        commit_sha = github.get_commit_sha(ref, body.commit_sha.lower())
+    else:
+        # 안 줬으면 → 기본 브랜치의 최신 커밋
+        commit_sha = github.get_branch_head_sha(ref, repo.default_branch)
 
     # ③ 같은 커밋으로 진행 중이거나 끝난 분석이 있으면 재사용
     existing = _find_reusable_run(db, repo.id, commit_sha)
@@ -101,16 +110,26 @@ def request_analysis(
 def list_analyses(
     repo_id: UUID,
     limit: int = Query(20, ge=1, le=100),
+    cursor: str | None = Query(None, max_length=200),
     db: Session = Depends(get_db),
 ) -> AnalysisListResponse:
     _get_repository_or_404(db, repo_id)
+
+    # ① 책갈피 풀기
+    offset = decode_cursor(cursor)
+
+    # ② 건너뛰고, 하나 더 읽기
     stmt = (
         select(AnalysisRun)
         .where(AnalysisRun.repository_id == repo_id)
         .order_by(AnalysisRun.created_at.desc(), AnalysisRun.id.desc())
-        .limit(limit)
+        .offset(offset)
+        .limit(limit + 1)
     )
-    runs = db.execute(stmt).scalars().all()
+
+    # ③ limit개만 남기고 다음 책갈피 만들기
+    runs, next_cursor = page(db.execute(stmt).scalars().all(), offset, limit)
+
     items = [
         AnalysisListItem(
             id=run.id,
@@ -121,8 +140,7 @@ def list_analyses(
         )
         for run in runs
     ]
-    # TODO: cursor 페이지 넘기기는 다음 작업에서 구현한다.
-    return AnalysisListResponse(items=items, next_cursor=None)
+    return AnalysisListResponse(items=items, next_cursor=next_cursor)
 
 
 @analyses_router.get("/{run_id}", response_model=AnalysisDetail)

@@ -87,7 +87,7 @@ class GitHubClient:
     def close(self) -> None:
         self._http.close()
 
-    def _get(self, path: str, ref: RepoRef) -> httpx.Response:
+    def _get(self, path: str, ref: RepoRef, not_found: ApiError | None = None) -> httpx.Response:
         headers = {
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
@@ -102,6 +102,8 @@ class GitHubClient:
             raise ApiError(502, "GITHUB_UNAVAILABLE", "GitHub에 연결하지 못했습니다.") from None
 
         status = response.status_code
+        if not_found is not None and status in (404, 422):
+            raise not_found
         if status == 404:
             raise ApiError(
                 404,
@@ -141,3 +143,18 @@ class GitHubClient:
         if not _SHA.match(sha):
             raise ApiError(502, "GITHUB_UNAVAILABLE", "GitHub 커밋 정보가 올바르지 않습니다.")
         return sha
+
+
+    def get_commit_sha(self, ref: RepoRef, sha: str) -> str:
+        """사용자가 준 SHA가 이 저장소에 실제로 있는지 확인하고 40자 SHA를 돌려준다."""
+        not_found = ApiError(
+            422,
+            "INVALID_COMMIT_SHA",
+            "저장소에서 해당 커밋을 찾을 수 없습니다.",
+            {"commit_sha": sha},
+        )
+        data = self._get(f"/repos/{ref.owner}/{ref.name}/commits/{sha}", ref, not_found).json()
+        found = str(data.get("sha", "")).lower()
+        if not _SHA.match(found):
+            raise ApiError(502, "GITHUB_UNAVAILABLE", "GitHub 커밋 정보가 올바르지 않습니다.")
+        return found

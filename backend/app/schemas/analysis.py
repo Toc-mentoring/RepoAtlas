@@ -4,7 +4,12 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+class AnalysisRequest(BaseModel):
+    """A04 분석 요청 주문서. commit_sha를 안 보내면 기본 브랜치 최신 커밋을 분석한다."""
+
+    commit_sha: str | None = Field(default=None, pattern=r"^[0-9a-fA-F]{40}$")
 
 
 class AnalysisAccepted(BaseModel):

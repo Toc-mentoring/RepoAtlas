@@ -2,6 +2,8 @@
 
 from uuid import uuid4
 
+from backend.app.services.github import GitHubRepository
+
 URL = "https://github.com/example-org/sample-web"
 
 
@@ -61,3 +63,31 @@ def test_detail_not_found_and_bad_uuid(api):
     assert missing.json()["error"]["code"] == "REPOSITORY_NOT_FOUND"
 
     assert api.client.get("/api/v1/repositories/not-a-uuid").status_code == 422
+
+
+def test_list_repositories_pages_with_cursor(api):
+    # 준비: 가짜 GitHub에 저장소 3개를 알려주고 전부 등록
+    for name in ("repo-a", "repo-b", "repo-c"):
+        api.github.repos[("example-org", name)] = GitHubRepository("example-org", name, "main")
+        api.client.post("/api/v1/repositories", json={"url": f"https://github.com/example-org/{name}"})
+
+    # 1페이지: 2개 + 책갈피 있음
+    first = api.client.get("/api/v1/repositories?limit=2").json()
+    assert len(first["items"]) == 2
+    assert first["next_cursor"] is not None
+
+    # 2페이지: 책갈피로 이어서 → 1개 + 책갈피 없음(끝)
+    second = api.client.get(f"/api/v1/repositories?limit=2&cursor={first['next_cursor']}").json()
+    assert len(second["items"]) == 1
+    assert second["next_cursor"] is None
+
+    # 두 페이지를 합치면 3개가 빠짐없이, 겹침없이
+    names = {item["name"] for item in first["items"] + second["items"]}
+    assert names == {"repo-a", "repo-b", "repo-c"}
+
+
+def test_list_repositories_rejects_bad_cursor(api):
+    response = api.client.get("/api/v1/repositories?cursor=!!!")
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_FILTER"
