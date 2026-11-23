@@ -27,8 +27,10 @@ diagrams_router = APIRouter(prefix="/diagrams", tags=["diagrams"])
 def _build_payload(db: Session, ready: ReadyRun, diagram_type: str, options: dict) -> dict:
     """지도를 만들어 저장할 내용(payload)으로 정리한다."""
     graph = build_graph(db, ready, diagram_type, options)
+    # 분석이 일부만 끝났거나(run partial), 그림 재료가 일부만 있으면(예: compose 없는 architecture) partial
+    catalog = availability_of(db, ready.run.id, diagram_type)["availability"]
     return {
-        "availability": "partial" if ready.run.status == "partial" else "available",
+        "availability": "partial" if ready.run.status == "partial" or catalog == "partial" else "available",
         "truncated": graph.truncated,
         "has_more": graph.truncated,
         "nodes": graph.nodes,

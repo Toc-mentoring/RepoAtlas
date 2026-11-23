@@ -4,13 +4,22 @@ Worker가 저장했을 법한 작은 분석 결과를 직접 넣고 확인한다
 """
 
 from types import SimpleNamespace
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from backend.app.models import AnalysisRun, CodeReference, CodeSymbol, Repository, SourceNode
+from backend.app.models import (
+    AnalysisRun,
+    CodeReference,
+    CodeSymbol,
+    Repository,
+    SchemaColumn,
+    SchemaForeignKey,
+    SchemaTable,
+    SourceNode,
+)
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 BLOB = f"https://github.com/example-org/sample-web/blob/{SHA}"
@@ -273,3 +282,154 @@ def test_diagram_errors(seeded):
 
     set_status(seeded, "queued")
     assert create(seeded, {"type": "directory"}).json()["error"]["code"] == "ANALYSIS_NOT_READY"
+
+
+# ------------------------------------------------------------------ ERD / architecture
+
+
+def add_file(seeded, path, metadata=None):
+    """루트 폴더 아래에 파일 노드 하나를 추가한다 (metadata에 Worker가 남긴 설정 단서를 넣을 수 있다)."""
+    with Session(seeded.engine) as db:
+        node = SourceNode(run_id=UUID(seeded.ids.run), parent_id=seeded.ids.root, kind="file",
+                          name=path.rsplit("/", 1)[-1], path=path, parse_status="parsed",
+                          metadata_=metadata or {})
+        db.add(node)
+        db.commit()
+        return node.id
+
+
+def add_schema(seeded):
+    """schema.sql: users(id PK, email), posts(id PK, user_id → users.id, editor_id → 못 찾은 표)"""
+    sql_id = add_file(seeded, "schema.sql")
+    run_id = UUID(seeded.ids.run)
+    with Session(seeded.engine) as db:
+        users = SchemaTable(run_id=run_id, name="users", source_file_id=sql_id)
+        posts = SchemaTable(run_id=run_id, name="posts", source_file_id=sql_id)
+        db.add_all([users, posts])
+        db.flush()
+
+        def column(table, name, position, primary=False):
+            item = SchemaColumn(run_id=run_id, table_id=table.id, name=name, data_type="integer",
+                                ordinal_position=position, is_primary=primary, is_nullable=not primary)
+            db.add(item)
+            db.flush()
+            return item
+
+        users_id = column(users, "id", 1, primary=True)
+        column(users, "email", 2)
+        column(posts, "id", 1, primary=True)
+        posts_user = column(posts, "user_id", 2)
+        posts_editor = column(posts, "editor_id", 3)
+        db.add_all([
+            SchemaForeignKey(run_id=run_id, source_column_id=posts_user.id, target_column_id=users_id.id,
+                             constraint_name="posts_user_fk", ordinal_position=1, target_ref="users.id"),
+            SchemaForeignKey(run_id=run_id, source_column_id=posts_editor.id, target_column_id=None,
+                             constraint_name="posts_editor_fk", ordinal_position=1, target_ref="editors.id"),
+        ])
+        db.commit()
+        return SimpleNamespace(users=users.id, posts=posts.id, users_id=users_id.id, posts_user=posts_user.id)
+
+
+def test_erd_diagram(seeded):
+    ids = add_schema(seeded)
+
+    items = {item["type"]: item for item in seeded.client.get(f"/api/v1/analyses/{seeded.ids.run}/diagram-types").json()["items"]}
+    assert items["erd"] == {"type": "erd", "availability": "available", "reason": None}
+
+    created = create(seeded, {"type": "erd"})
+    assert created.status_code == 201
+    body = created.json()
+    assert body["type"] == "erd"
+    assert body["availability"] == "available"
+
+    labels = {node["id"]: node["label"] for node in body["nodes"]}
+    assert labels[f"table:{ids.users}"] == "users"
+    assert labels[f"table:{ids.posts}"] == "posts"
+    assert len(body["nodes"]) == 7  # 표 2개 + 칸 5개
+    assert body["nodes"][0]["data"]["github_url"] == f"{BLOB}/schema.sql"
+
+    fk = [edge for edge in body["edges"] if edge["type"] == "foreign_key"]
+    assert len(fk) == 1
+    assert fk[0]["source"] == f"column:{ids.posts_user}"
+    assert fk[0]["target"] == f"column:{ids.users_id}"
+    assert fk[0]["data"]["certainty"] == "confirmed"
+    assert len([edge for edge in body["edges"] if edge["type"] == "contains"]) == 5
+
+    # 대상을 못 찾은 FK(editors.id)는 선 대신 숫자와 경고로 알려준다.
+    assert body["unresolved_references"] == 1
+    assert any("외래 키" in warning for warning in body["warnings"])
+
+    assert create(seeded, {"type": "erd"}).status_code == 200  # 같은 옵션이면 캐시
+    assert create(seeded, {"type": "erd", "options": {"root_path": "."}}).status_code == 422
+
+
+def test_erd_truncates_by_table(seeded):
+    add_schema(seeded)
+    # posts 묶음(표1+칸3=4) + users 묶음(표1+칸2=3) = 7개. 여기에 칸 19개짜리 표를 더하면 20개를 넘는다.
+    run_id = UUID(seeded.ids.run)
+    with Session(seeded.engine) as db:
+        big = SchemaTable(run_id=run_id, name="zzz_big")
+        db.add(big)
+        db.flush()
+        db.add_all([SchemaColumn(run_id=run_id, table_id=big.id, name=f"c{i}", data_type="text",
+                                 ordinal_position=i) for i in range(1, 20)])
+        db.commit()
+
+    body = create(seeded, {"type": "erd", "options": {"max_nodes": 20}}).json()
+    assert body["truncated"] is True
+    assert len(body["nodes"]) == 7  # 20개를 넘기는 zzz_big 묶음은 통째로 빠진다
+    assert not any(node["label"] == "zzz_big" for node in body["nodes"])
+
+
+def test_architecture_from_compose(seeded):
+    add_file(seeded, "docker-compose.yml", {"config_facts": [
+        {"kind": "service", "name": "api", "certainty": "confirmed"},
+        {"kind": "service", "name": "db", "certainty": "confirmed"},
+        {"kind": "depends_on", "source": "api", "target": "db", "certainty": "confirmed"},
+    ]})
+    add_file(seeded, "frontend/package.json", {"config_facts": [
+        {"kind": "framework", "name": "react", "certainty": "confirmed"},
+        {"kind": "script", "name": "build", "certainty": "confirmed"},
+    ]})
+
+    items = {item["type"]: item for item in seeded.client.get(f"/api/v1/analyses/{seeded.ids.run}/diagram-types").json()["items"]}
+    assert items["architecture"]["availability"] == "available"
+
+    created = create(seeded, {"type": "architecture"})
+    assert created.status_code == 201
+    body = created.json()
+    assert body["availability"] == "available"
+
+    nodes = {node["id"]: node for node in body["nodes"]}
+    assert set(nodes) >= {"service:api", "service:db"}
+    package = next(node for node in body["nodes"] if node["data"]["kind"] == "package")
+    assert package["label"] == "frontend"
+    assert package["data"]["frameworks"] == ["react"]
+
+    assert body["edges"] == [{
+        "id": "depends_on:api:db",
+        "source": "service:api",
+        "target": "service:db",
+        "type": "architecture_dependency",
+        "data": {"certainty": "confirmed", "evidence": [{
+            "path": "docker-compose.yml", "line": None, "basis": "config_file",
+            "github_url": f"{BLOB}/docker-compose.yml",
+        }]},
+    }]
+
+
+def test_architecture_partial_without_compose(seeded):
+    add_file(seeded, "app.py", {"config_facts": [
+        {"kind": "fastapi_app", "line": 4, "certainty": "confirmed"},
+        {"kind": "fastapi_router", "line": 6, "certainty": "inferred"},
+    ]})
+
+    items = {item["type"]: item for item in seeded.client.get(f"/api/v1/analyses/{seeded.ids.run}/diagram-types").json()["items"]}
+    assert items["architecture"]["availability"] == "partial"
+    assert items["architecture"]["reason"]
+
+    body = create(seeded, {"type": "architecture"}).json()
+    assert body["availability"] == "partial"
+    assert body["edges"] == []
+    assert body["nodes"][0]["data"]["router_count"] == 1
+    assert body["nodes"][0]["data"]["github_url"] == f"{BLOB}/app.py#L4"
