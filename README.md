@@ -2,7 +2,7 @@
 
 > **GitHub 저장소의 코드를 읽고, 유지보수 인수인계에 필요한 구조도를 선택해 생성하는 웹서비스**
 >
-> 상태: **Worker·DB 구현 / 프론트 mock 구현 / API 구현 전** · 목표: **21일 MVP**
+> 상태: **Worker·DB·API·프론트 구현 / Docker Compose 배포 구성 완료** · 목표: **21일 MVP**
 
 ## 5분 소개
 
@@ -81,15 +81,26 @@ flowchart LR
 
 ```text
 repoatlas/
-├── frontend/                 # React SPA (mock 구현)
-├── backend/                  # DB 모델·migration 구현; FastAPI 구현 예정
+├── frontend/                 # React SPA (실제 API·mock 모드)
+├── backend/                  # FastAPI, DB 모델·migration
 ├── worker/                   # 독립 분석 프로세스 및 JSON 테스트 명령
-├── infra/                    # Compose/Nginx (구현 예정)
+├── infra/                    # Docker Compose·Nginx 배포 구성
 ├── README.md
 └── docs/                     # 설계 문서
 ```
 
-> Worker와 DB 모델·migration은 실행할 수 있습니다. 프론트엔드는 mock으로 실행할 수 있으며 실제 API 연동은 검증 전입니다. FastAPI와 Compose 배포는 아직 구현되지 않았습니다.
+> API·Worker·프론트엔드는 각각 실행할 수 있고, `infra/`의 Docker Compose로 한 서버에 함께 배포합니다. `architecture`·`erd` 다이어그램은 아직 unsupported로 표시됩니다.
+
+## 서버 배포 (Docker Compose)
+
+```bash
+cd infra
+cp .env.example .env    # POSTGRES_PASSWORD, GITHUB_TOKEN 입력
+docker compose up -d --build
+curl -i http://localhost/healthz
+```
+
+PostgreSQL, migration, API, Worker, Nginx(프론트 + `/api` 프록시)가 함께 뜹니다. 자세한 절차와 운영 명령은 [infra/README.md](infra/README.md)를 참고합니다.
 
 ## Worker 실행
 

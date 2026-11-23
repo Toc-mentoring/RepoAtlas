@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.dialects import postgresql
 
+from backend.app.api import deps
 from backend.app.api.deps import get_db
 from backend.app.main import app
 
@@ -51,10 +52,37 @@ def client_with(request):
     app.dependency_overrides.clear()
 
 
-def test_healthz():
+class FakeConnection:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, stmt):
+        return None
+
+
+class FakeEngine:
+    def connect(self):
+        return FakeConnection()
+
+
+def test_healthz(monkeypatch):
+    monkeypatch.setattr(deps, "get_engine", lambda: FakeEngine())
     response = TestClient(app).get("/healthz")
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_healthz_returns_503_when_database_is_unavailable(monkeypatch):
+    def broken_engine():
+        raise RuntimeError("DATABASE_URL must point to the RepoAtlas PostgreSQL database")
+
+    monkeypatch.setattr(deps, "get_engine", broken_engine)
+    response = TestClient(app).get("/healthz")
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable"}
 
 
 def test_list_repositories_returns_api_spec_shape(client_with):
