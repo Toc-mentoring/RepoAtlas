@@ -1,19 +1,21 @@
 """저장된 분석 결과를 화면용 그래프(GraphDTO의 nodes/edges)로 바꾼다.
 
-지원: directory(폴더 구조), dependency(파일 import 관계), symbols(파일 안 함수·클래스).
-architecture, erd는 아직 unsupported로 알려준다.
+지원: directory(폴더 구조), dependency(파일 import 관계), symbols(파일 안 함수·클래스),
+architecture(설정 파일로 본 시스템 구성), erd(SQL DDL로 본 DB 표 구조).
 """
 
 import hashlib
 import json
+from collections import defaultdict
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from backend.app.api.errors import ApiError
-from backend.app.models import CodeReference, CodeSymbol, SchemaTable, SourceNode
+from backend.app.models import CodeReference, CodeSymbol, SchemaColumn, SchemaForeignKey, SchemaTable, SourceNode
 from backend.app.services.runs import ReadyRun
 from backend.app.services.tree import get_root_node, within
 
@@ -21,8 +23,8 @@ ALLOWED_OPTIONS = {
     "directory": {"root_path", "depth", "max_nodes"},
     "dependency": {"root_path", "language", "depth", "max_nodes"},
     "symbols": {"file_id", "max_nodes"},
-    "architecture": set(),
-    "erd": set(),
+    "architecture": {"max_nodes"},  # 그릴 노드 최대 개수만 받는다
+    "erd": {"max_nodes"},
 }
 
 IMPORT_BASIS = {
@@ -80,13 +82,39 @@ def diagram_availability(db: Session, run_id) -> list[dict[str, Any]]:
         item("directory", node_count > 0, "분석된 파일이 없습니다."),
         item("dependency", ref_resolved > 0, dependency_reason),
         item("symbols", symbol_count > 0, "함수·클래스를 찾지 못했습니다."),
-        item("architecture", False, "설정 파일 기반 시스템 구성도는 아직 지원하지 않습니다."),
-        item(
-            "erd",
-            False,
-            "ERD 다이어그램은 아직 지원하지 않습니다." if table_count > 0 else "해석 가능한 SQL DDL 없음",
-        ),
+        _architecture_availability(db, run_id),
+        # Worker가 .sql 파일에서 CREATE TABLE을 하나라도 찾았으면 ERD를 그릴 수 있다.
+        item("erd", table_count > 0, "해석 가능한 SQL DDL 없음"),
     ]
+
+
+def _architecture_availability(db: Session, run_id) -> dict[str, Any]:
+    """설정 파일 단서가 얼마나 있는지에 따라 architecture 가용성을 3단계로 알려준다."""
+    facts = [fact for _, file_facts in _config_facts(db, run_id) for fact in file_facts]
+    if any(fact.get("kind") == "service" for fact in facts):
+        # docker-compose의 services가 있으면 구성 요소와 연결(depends_on)까지 그릴 수 있다.
+        return {"type": "architecture", "availability": "available", "reason": None}
+    if facts:
+        # package.json, Dockerfile, FastAPI 앱 같은 단서만 있으면 구성 요소만 그린다(연결선 없음).
+        return {"type": "architecture", "availability": "partial",
+                "reason": "docker-compose가 없어 구성 요소만 표시하고 연결은 표시하지 않습니다."}
+    return {"type": "architecture", "availability": "unsupported",
+            "reason": "시스템 구성을 알 수 있는 설정 파일(docker-compose 등)을 찾지 못했습니다."}
+
+
+def _config_facts(db: Session, run_id) -> list[tuple[SourceNode, list[dict[str, Any]]]]:
+    """Worker가 파일 metadata의 config_facts에 남겨둔 설정 단서를 (파일, 단서 목록)으로 꺼낸다."""
+    files = db.execute(
+        select(SourceNode)
+        .where(SourceNode.run_id == run_id, SourceNode.kind == "file", SourceNode.metadata_.has_key("config_facts"))
+        .order_by(SourceNode.path.asc(), SourceNode.id.asc())
+    ).scalars().all()
+    result = []
+    for file in files:
+        facts = file.metadata_.get("config_facts")
+        if isinstance(facts, list):
+            result.append((file, [fact for fact in facts if isinstance(fact, dict)]))
+    return result
 
 
 def availability_of(db: Session, run_id, diagram_type: str) -> dict[str, Any]:
@@ -130,7 +158,8 @@ def normalize_options(db: Session, run_id, diagram_type: str, options: dict[str,
             raise _invalid("file_id에 해당하는 파일이 없습니다.", option="file_id", value=file_id)
         return {"file_id": file_id, "max_nodes": _int_option(options, "max_nodes", 150, 20, 300)}
 
-    return {}
+    # architecture, erd: 최대 노드 수만 정리한다.
+    return {"max_nodes": _int_option(options, "max_nodes", 150, 20, 300)}
 
 
 def options_hash(options: dict[str, Any]) -> str:
@@ -313,10 +342,230 @@ def build_symbols(db: Session, ready: ReadyRun, options: dict[str, Any]) -> Grap
     return graph
 
 
+def build_erd(db: Session, ready: ReadyRun, options: dict[str, Any]) -> Graph:
+    """ERD: 표(table) → 칸(column)을 잇고, 외래 키(FK)는 칸 → 칸 화살표로 그린다."""
+    run_id = ready.run.id
+    max_nodes = options["max_nodes"]
+
+    # ① 창고에서 재료 꺼내기: 표, 칸, 외래 키 (Worker가 .sql 파일에서 뽑아 저장해둔 것)
+    tables = db.execute(
+        select(SchemaTable)
+        .where(SchemaTable.run_id == run_id)
+        .order_by(SchemaTable.schema_name.asc(), SchemaTable.name.asc(), SchemaTable.id.asc())
+    ).scalars().all()
+    columns = db.execute(
+        select(SchemaColumn)
+        .where(SchemaColumn.run_id == run_id)
+        .order_by(SchemaColumn.table_id.asc(), SchemaColumn.ordinal_position.asc(), SchemaColumn.id.asc())
+    ).scalars().all()
+    foreign_keys = db.execute(
+        select(SchemaForeignKey)
+        .where(SchemaForeignKey.run_id == run_id)
+        .order_by(SchemaForeignKey.constraint_name.asc(), SchemaForeignKey.ordinal_position.asc(),
+                  SchemaForeignKey.id.asc())
+    ).scalars().all()
+
+    # 표마다 어느 .sql 파일에서 나왔는지 (GitHub 링크를 만들기 위해)
+    file_ids = {table.source_file_id for table in tables if table.source_file_id is not None}
+    files = {}
+    if file_ids:
+        files = {
+            node.id: node
+            for node in db.execute(
+                select(SourceNode).where(SourceNode.run_id == run_id, SourceNode.id.in_(file_ids))
+            ).scalars()
+        }
+
+    columns_by_table = defaultdict(list)
+    for column in columns:
+        columns_by_table[column.table_id].append(column)
+
+    graph = Graph()
+    kept_columns: dict[int, SourceNode | None] = {}  # 그림에 들어간 칸 id → 그 표의 .sql 파일
+
+    # ② 표 하나 + 그 표의 칸들을 한 묶음으로 넣는다. 묶음이 max_nodes를 넘기면 거기서 멈춘다.
+    for table in tables:
+        table_columns = columns_by_table[table.id]
+        if len(graph.nodes) + 1 + len(table_columns) > max_nodes:
+            graph.truncated = True
+            graph.warnings.append(_truncation_warning(max_nodes))
+            break
+
+        file = files.get(table.source_file_id)
+        label = table.name if table.schema_name == "public" else f"{table.schema_name}.{table.name}"
+        graph.nodes.append(
+            {
+                "id": f"table:{table.id}",
+                "type": "table",
+                "label": label,
+                "data": {
+                    "schema": table.schema_name,
+                    "name": table.name,
+                    "path": file.path if file else None,
+                    "github_url": ready.github_url(file.path, "file") if file else None,
+                },
+            }
+        )
+        for column in table_columns:
+            graph.nodes.append(
+                {
+                    "id": f"column:{column.id}",
+                    "type": "column",
+                    "label": column.name,
+                    "data": {
+                        "data_type": column.data_type,
+                        "is_primary": column.is_primary,
+                        "is_nullable": column.is_nullable,
+                        "ordinal_position": column.ordinal_position,
+                    },
+                }
+            )
+            # 표 → 칸 연결 (다른 그림들처럼 "contains")
+            graph.edges.append(
+                {
+                    "id": f"contains:table:{table.id}:column:{column.id}",
+                    "source": f"table:{table.id}",
+                    "target": f"column:{column.id}",
+                    "type": "contains",
+                    "data": {},
+                }
+            )
+            kept_columns[column.id] = file
+
+    # ③ 외래 키 화살표: 두 칸이 모두 그림에 있을 때만 그린다.
+    for fk in foreign_keys:
+        if fk.source_column_id not in kept_columns:
+            continue
+        if fk.target_column_id is None:
+            # 가리키는 표·칸을 .sql 안에서 못 찾은 FK (다른 파일, 오타 등)
+            graph.unresolved_references += 1
+            continue
+        if fk.target_column_id not in kept_columns:
+            continue  # max_nodes로 잘려서 대상 칸이 그림에 없음
+        file = kept_columns[fk.source_column_id]
+        graph.edges.append(
+            {
+                "id": f"foreign_key:{fk.id}",
+                "source": f"column:{fk.source_column_id}",
+                "target": f"column:{fk.target_column_id}",
+                "type": "foreign_key",
+                "data": {
+                    "certainty": "confirmed",
+                    "constraint_name": fk.constraint_name,
+                    "ordinal_position": fk.ordinal_position,
+                    "target_ref": fk.target_ref,
+                    "evidence": [
+                        {
+                            "path": file.path if file else None,
+                            "basis": "sql_ddl",
+                            "github_url": ready.github_url(file.path, "file") if file else None,
+                        }
+                    ],
+                },
+            }
+        )
+
+    if graph.unresolved_references:
+        graph.warnings.append(f"대상을 찾지 못한 외래 키 {graph.unresolved_references}개는 표시하지 않았습니다.")
+    return graph
+
+
+def _folder_label(ready: ReadyRun, path: str) -> str:
+    """'frontend/package.json' → 'frontend', 루트에 있으면 저장소 이름."""
+    parent = str(PurePosixPath(path).parent)
+    return ready.repo.name if parent == "." else parent
+
+
+def build_architecture(db: Session, ready: ReadyRun, options: dict[str, Any]) -> Graph:
+    """architecture: 설정 파일 단서로 구성 요소(component)와 그 사이 연결을 그린다.
+
+    - docker-compose services → 구성 요소, depends_on → 연결선(확실함, confirmed)
+    - package.json / Dockerfile / FastAPI 앱 → 구성 요소 (연결선은 만들지 않는다)
+    폴더 이름만 보고 "서로 연결돼 있다"고 짐작하지 않는다.
+    """
+    max_nodes = options["max_nodes"]
+    graph = Graph()
+    seen: set[str] = set()
+
+    def add_node(node: dict[str, Any]) -> None:
+        # 같은 구성 요소는 한 번만, 그리고 max_nodes까지만 넣는다.
+        if node["id"] in seen:
+            return
+        if len(graph.nodes) >= max_nodes:
+            graph.truncated = True
+            return
+        seen.add(node["id"])
+        graph.nodes.append(node)
+
+    def evidence(file: SourceNode, line: int | None = None) -> dict[str, Any]:
+        # 연결·구성 요소의 근거 = 어느 설정 파일 몇 번째 줄에서 봤는지
+        return {"path": file.path, "line": line, "basis": "config_file",
+                "github_url": ready.github_url(file.path, "file", line, line)}
+
+    facts_by_file = _config_facts(db, ready.run.id)
+    dependencies = []  # (파일, 출발 서비스, 도착 서비스) — 노드를 다 넣은 뒤 선을 긋는다
+
+    # ① 구성 요소 노드 만들기
+    for file, facts in facts_by_file:
+        routers = sum(1 for fact in facts if fact.get("kind") == "fastapi_router")
+        frameworks = sorted(str(f["name"]) for f in facts if f.get("kind") == "framework" and "name" in f)
+        scripts = sorted(str(f["name"]) for f in facts if f.get("kind") == "script" and "name" in f)
+
+        for fact in facts:
+            kind = fact.get("kind")
+            if kind == "service" and isinstance(fact.get("name"), str):
+                # docker-compose 서비스 하나 = 구성 요소 하나 (예: backend, db, frontend)
+                add_node({"id": f"service:{fact['name']}", "type": "component", "label": fact["name"],
+                          "data": {"kind": "service", "certainty": "confirmed", "path": file.path,
+                                   "github_url": ready.github_url(file.path, "file"),
+                                   "evidence": [evidence(file)]}})
+            elif kind == "depends_on":
+                dependencies.append((file, fact.get("source"), fact.get("target")))
+            elif kind == "fastapi_app":
+                # FastAPI()를 만드는 파일 = 백엔드 서버 진입점
+                line = fact.get("line") if isinstance(fact.get("line"), int) else None
+                add_node({"id": f"fastapi:{file.id}", "type": "component", "label": f"FastAPI · {file.path}",
+                          "data": {"kind": "fastapi_app", "certainty": "confirmed", "path": file.path,
+                                   "router_count": routers,
+                                   "github_url": ready.github_url(file.path, "file", line, line),
+                                   "evidence": [evidence(file, line)]}})
+            elif kind == "dockerfile":
+                add_node({"id": f"dockerfile:{file.id}", "type": "component",
+                          "label": f"Dockerfile · {_folder_label(ready, file.path)}",
+                          "data": {"kind": "dockerfile", "certainty": "confirmed", "path": file.path,
+                                   "github_url": ready.github_url(file.path, "file"),
+                                   "evidence": [evidence(file)]}})
+
+        if PurePosixPath(file.path).name == "package.json" and (frameworks or scripts):
+            # package.json 하나 = 자바스크립트 앱 하나 (예: frontend)
+            add_node({"id": f"package:{file.id}", "type": "component", "label": _folder_label(ready, file.path),
+                      "data": {"kind": "package", "certainty": "confirmed", "path": file.path,
+                               "frameworks": frameworks, "scripts": scripts,
+                               "github_url": ready.github_url(file.path, "file"),
+                               "evidence": [evidence(file)]}})
+
+    # ② 연결선: docker-compose의 depends_on만 (둘 다 그림에 있을 때)
+    for file, source, target in dependencies:
+        source_id, target_id = f"service:{source}", f"service:{target}"
+        if source_id not in seen or target_id not in seen:
+            continue
+        graph.edges.append({"id": f"depends_on:{source}:{target}", "source": source_id, "target": target_id,
+                            "type": "architecture_dependency",
+                            "data": {"certainty": "confirmed", "evidence": [evidence(file)]}})
+
+    if graph.truncated:
+        graph.warnings.append(_truncation_warning(max_nodes))
+    if not dependencies:
+        graph.warnings.append("docker-compose의 depends_on이 없어 구성 요소 사이 연결은 표시하지 않았습니다.")
+    return graph
+
+
 BUILDERS = {
     "directory": build_directory,
     "dependency": build_dependency,
     "symbols": build_symbols,
+    "architecture": build_architecture,
+    "erd": build_erd,
 }
 
 

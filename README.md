@@ -89,7 +89,7 @@ repoatlas/
 └── docs/                     # 설계 문서
 ```
 
-> API·Worker·프론트엔드는 각각 실행할 수 있고, `infra/`의 Docker Compose로 한 서버에 함께 배포합니다. `architecture`·`erd` 다이어그램은 아직 unsupported로 표시됩니다.
+> API·Worker·프론트엔드는 각각 실행할 수 있고, `infra/`의 Docker Compose로 한 서버에 함께 배포합니다. `architecture`는 Docker Compose 서비스·`depends_on`과 package.json·Dockerfile·FastAPI 앱 단서로, `erd`는 Worker가 추출한 SQL DDL로 생성합니다. 근거가 없으면 unsupported로 표시됩니다.
 
 ## 서버 배포 (Docker Compose)
 
