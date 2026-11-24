@@ -196,3 +196,64 @@ it("존재하지 않는 노드를 연결하는 잘못된 그래프를 거부한�
     error: { code: "INVALID_RESPONSE" },
   });
 });
+
+it("ERD에서 컬럼 포함 관계와 원본 경로가 없는 외래 키 근거를 읽는다", async () => {
+  const graph = {
+    diagram_id: "g",
+    run_id: "r",
+    type: "erd",
+    availability: "available",
+    nodes: [
+      {
+        id: "table:1",
+        type: "table",
+        label: "tasks",
+        data: { schema: "public", path: null, github_url: null },
+      },
+      {
+        id: "column:2",
+        type: "column",
+        label: "id",
+        data: { data_type: "bigint", is_primary: true },
+      },
+      {
+        id: "column:3",
+        type: "column",
+        label: "parent_id",
+        data: { data_type: "bigint" },
+      },
+    ],
+    edges: [
+      {
+        id: "contains:2",
+        type: "contains",
+        source: "table:1",
+        target: "column:2",
+        data: {},
+      },
+      {
+        id: "contains:3",
+        type: "contains",
+        source: "table:1",
+        target: "column:3",
+        data: {},
+      },
+      {
+        id: "foreign_key:1",
+        type: "foreign_key",
+        source: "column:3",
+        target: "column:2",
+        data: {
+          certainty: "confirmed",
+          evidence: [{ path: null, github_url: null, basis: "sql_ddl" }],
+        },
+      },
+    ],
+    warnings: [],
+    truncated: false,
+    has_more: false,
+    unresolved_references: 0,
+  };
+  fetchMock.mockResolvedValue(reply(graph));
+  await expect(api.getDiagram("g")).resolves.toEqual(graph);
+});
