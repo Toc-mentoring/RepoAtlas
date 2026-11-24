@@ -197,6 +197,35 @@ it("존재하지 않는 노드를 연결하는 잘못된 그래프를 거부한�
   });
 });
 
+it.each([
+  ["directory", "dir:1", "directory", "file:2", "file"],
+  ["symbols", "file:2", "file", "symbol:3", "function"],
+] as const)(
+  "%s에서 별도 근거가 없는 포함 관계를 읽는다",
+  async (type, source, sourceType, target, targetType) => {
+    const graph = {
+      diagram_id: "g",
+      run_id: "r",
+      type,
+      availability: "available",
+      nodes: [
+        { id: source, type: sourceType, label: source, data: {} },
+        { id: target, type: targetType, label: target, data: {} },
+      ],
+      edges: [{ id: "e", type: "contains", source, target, data: {} }],
+      warnings: [],
+      truncated: false,
+      has_more: false,
+      unresolved_references: 0,
+    };
+    fetchMock
+      .mockResolvedValueOnce(reply(graph, 201))
+      .mockResolvedValueOnce(reply(graph));
+    await expect(api.createDiagram("r", type, {})).resolves.toEqual(graph);
+    await expect(api.getDiagram("g")).resolves.toEqual(graph);
+  },
+);
+
 it("ERD에서 컬럼 포함 관계와 원본 경로가 없는 외래 키 근거를 읽는다", async () => {
   const graph = {
     diagram_id: "g",

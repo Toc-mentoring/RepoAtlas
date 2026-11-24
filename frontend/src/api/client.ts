@@ -217,10 +217,10 @@ const graphShape = (v: any) => {
     )
       return false;
     const evidence = e.data.evidence;
-    const schemaContains = v.type === "erd" && e.type === "contains";
+    const containment = e.type === "contains";
     const schemaReference = v.type === "erd" && e.type === "foreign_key";
     if (
-      !(schemaContains && evidence === undefined) &&
+      !(containment && evidence === undefined) &&
       (!Array.isArray(evidence) ||
         !evidence.every(
           (ev: unknown) =>

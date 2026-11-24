@@ -233,7 +233,16 @@ function layout(
     }),
   };
 }
-type DiagramParent = { id: string; previous?: DiagramParent };
+type DiagramParent = {
+  id: string;
+  previous?: DiagramParent;
+  maxNodes?: number;
+};
+type DiagramNavigation = {
+  parent?: DiagramParent;
+  focus?: { id: string; path: string };
+  maxNodes?: number;
+};
 function FitGraph({
   revision,
   focus,
@@ -261,7 +270,8 @@ export function GraphPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const parent = (location.state as { parent?: DiagramParent } | null)?.parent;
+  const state = location.state as DiagramNavigation | null;
+  const { parent, focus, maxNodes } = state ?? {};
   const graph = useQuery({
     queryKey: ["diagram", id],
     queryFn: () => api.getDiagram(id),
@@ -269,9 +279,6 @@ export function GraphPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [centered, setCentered] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const focus = (
-    location.state as { focus?: { id: string; path: string } } | null
-  )?.focus;
   useEffect(() => {
     setSelected(focus?.id || null);
     setCentered(focus?.id || null);
@@ -293,10 +300,22 @@ export function GraphPage() {
       type: DiagramType;
       options: DiagramOptions;
     }) => api.createDiagram(graph.data!.run_id, type, options),
-    onSuccess: (data) => {
+    onSuccess: (data, { options }) => {
+      if (data.diagram_id === id) {
+        if (maxNodes !== options.max_nodes) {
+          navigate(location.pathname, {
+            replace: true,
+            state: { ...state, maxNodes: options.max_nodes },
+          });
+        }
+        return;
+      }
       setSelected(null);
       navigate(`/diagrams/${data.diagram_id}`, {
-        state: { parent: { id, previous: parent } },
+        state: {
+          parent: { id, previous: parent, maxNodes },
+          maxNodes: options.max_nodes,
+        },
       });
     },
   });
@@ -375,6 +394,7 @@ export function GraphPage() {
       </main>
     );
   const data = graph.data;
+  const limited = data.truncated || data.has_more;
   const active = data.nodes.find((n) => n.id === selected);
   const sourceUrl =
     active?.data.github_url ??
@@ -396,7 +416,7 @@ export function GraphPage() {
             <Link
               className="back"
               to={`/diagrams/${parent.id}`}
-              state={{ parent: parent.previous }}
+              state={{ parent: parent.previous, maxNodes: parent.maxNodes }}
             >
               ← 이전 다이어그램
             </Link>
@@ -431,20 +451,21 @@ export function GraphPage() {
           </button>
         </div>
       </div>
-      {!special && (
-        <div className="workspace-tools">
+      <div className="workspace-tools">
+        {!special && (
           <details>
             <summary>분석 전체 검색</summary>
             <RunSearch runId={data.run_id} />
           </details>
-          <GraphFilters
-            key={data.diagram_id}
-            graph={data}
-            pending={create.isPending}
-            apply={(options) => create.mutate({ type: data.type, options })}
-          />
-        </div>
-      )}
+        )}
+        <GraphFilters
+          key={data.diagram_id}
+          graph={data}
+          maxNodes={maxNodes}
+          pending={create.isPending}
+          apply={(options) => create.mutate({ type: data.type, options })}
+        />
+      </div>
       {focus && !data.nodes.some((n) => n.id === focus.id) && (
         <div className="notice" role="status">
           선택한 항목 {focus.path}이 서버의 표시 범위에 포함되지 않았습니다.
@@ -456,13 +477,15 @@ export function GraphPage() {
           부분 지원 다이어그램입니다. 경고와 근거를 확인해 주세요.
         </div>
       )}
-      {(data.warnings.length > 0 || data.truncated || data.has_more) && (
+      {(data.warnings.length > 0 || limited) && (
         <div className="notice">
           <AlertTriangle size={16} />
           {data.warnings.join(" ")}{" "}
-          {(data.truncated || data.has_more) &&
+          {limited &&
             (special
-              ? "표시 한도에 도달해 일부 결과만 표시합니다."
+              ? maxNodes === 300
+                ? "서버의 최대 표시 한도인 300개를 적용했습니다."
+                : "그래프 범위·필터에서 최대 노드를 300개까지 늘릴 수 있습니다."
               : "결과가 잘렸습니다. 경로 또는 깊이를 줄여 다시 생성하세요.")}
         </div>
       )}
@@ -497,7 +520,9 @@ export function GraphPage() {
             {!data.nodes.length && (
               <p className="graph-empty" role="status">
                 {schema
-                  ? "분석에서 확인된 테이블이 없습니다."
+                  ? limited
+                    ? "현재 표시 한도에 포함된 테이블이 없습니다."
+                    : "분석에서 확인된 테이블이 없습니다."
                   : special
                     ? "분석에서 확인된 구성 요소가 없습니다."
                     : "현재 범위에 표시할 노드가 없습니다. 경로·언어·깊이 필터를 변경해 주세요."}

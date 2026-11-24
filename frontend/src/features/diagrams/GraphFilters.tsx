@@ -3,27 +3,40 @@ import type { DiagramOptions, GraphDTO } from "../../api/types";
 
 export function GraphFilters({
   graph,
+  maxNodes = 150,
   pending,
   apply,
 }: {
   graph: GraphDTO;
+  maxNodes?: number;
   pending: boolean;
   apply: (options: DiagramOptions) => void;
 }) {
   const [path, setPath] = useState(".");
   const [depth, setDepth] = useState(2);
-  const [limit, setLimit] = useState(150);
+  const [limit, setLimit] = useState(maxNodes);
   const [language, setLanguage] = useState("");
   const [error, setError] = useState("");
   const scoped = graph.type === "directory" || graph.type === "dependency";
-  const file = graph.nodes.find((n) => n.type === "file");
-  if (!scoped && graph.type !== "symbols") return null;
+  const file =
+    graph.type === "symbols"
+      ? graph.nodes.find((n) => n.type === "file")
+      : undefined;
+  const needsFile = graph.type === "symbols" && !file;
   return (
     <details className="graph-filters">
       <summary>그래프 범위·필터</summary>
       <form
         onSubmit={(e) => {
           e.preventDefault();
+          if (needsFile) return;
+          if (!scoped) {
+            apply({
+              max_nodes: limit,
+              ...(file && { file_id: Number(file.id.slice(5)) }),
+            });
+            return;
+          }
           const normalized =
             path.trim().replace(/^\.\//, "").replace(/\/$/, "") || ".";
           if (
@@ -37,18 +50,12 @@ export function GraphFilters({
             return;
           }
           setError("");
-          apply(
-            scoped
-              ? {
-                  root_path: normalized,
-                  depth,
-                  max_nodes: limit,
-                  ...(graph.type === "dependency" && language
-                    ? { language }
-                    : {}),
-                }
-              : { file_id: Number(file?.id.slice(5)), max_nodes: limit },
-          );
+          apply({
+            root_path: normalized,
+            depth,
+            max_nodes: limit,
+            ...(graph.type === "dependency" && language ? { language } : {}),
+          });
         }}
       >
         {scoped && (
@@ -106,7 +113,7 @@ export function GraphFilters({
             required
           />
         </label>
-        <button className="outline" disabled={pending || (!scoped && !file)}>
+        <button className="outline" disabled={pending || needsFile}>
           {pending ? "적용 중…" : "필터 적용"}
         </button>
         {error && (

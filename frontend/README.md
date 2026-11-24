@@ -26,12 +26,11 @@ pnpm check:backend http://127.0.0.1:8000/api/v1
 
 ## 현재 GitHub 백엔드에 맞춘 동작
 
-확인 기준: [develop 0260436](https://github.com/Toc-mentoring/RepoAtlas/tree/02604366b003f629d934eee1b515ba8de4e97771/backend/app).
+확인 기준은 [develop 8fe1e4d](https://github.com/Toc-mentoring/RepoAtlas/tree/8fe1e4d4225e73cf4ee8aad935988b778b80913d/backend/app)입니다.
 
 - `/openapi.json`의 요청 본문·cursor 파라미터를 읽어 지원 기능을 확인합니다. 스키마 조회 실패 시 분석 버튼을 비활성화하고 재시도를 표시합니다.
-- 현재 분석 요청은 **본문 없이 POST**하며 서버가 기본 브랜치 HEAD를 고정합니다. 화면에 분석 대상을 표시하고 SHA 입력은 숨깁니다.
-- 백엔드가 `commit_sha` 요청 스키마를 추가하면 SHA 입력과 일치 검사를 자동 활성화합니다. 입력 SHA를 무시한 결과를 성공으로 표시하지 않습니다.
-- 저장소 목록·분석 이력은 현재 cursor 미지원입니다. 최근 최대 100개를 조회하고 한계를 안내합니다. cursor가 구현된 서버에서는 20개씩 더 보기를 사용합니다.
+- 최신 백엔드는 지정 커밋 SHA를 받고, 저장소 목록과 분석 이력을 cursor로 페이지 조회합니다. 프론트는 요청한 SHA와 응답 SHA가 일치하는지 확인합니다.
+- 이전 서버는 지원 기능에 따라 기본 브랜치 HEAD 분석과 최대 100개 목록 조회를 사용합니다.
 - queued/fetching 등 진행 중 `stats={}` 응답을 허용하며 빠진 통계 항목은 화면에서 0으로 보완합니다. 분석 상태 자체는 변경하지 않습니다.
 - 상태는 2초 폴링하며 completed/partial/failed 또는 통신 오류에서 중단합니다. 재시도로 복구할 수 있습니다.
 - 결과·검색·다이어그램 API의 cursor, 숫자 file_id, GraphDTO·SHA 원본 링크를 사용합니다.
@@ -42,6 +41,7 @@ pnpm check:backend http://127.0.0.1:8000/api/v1
 ## 화면 기능
 
 - directory/dependency/symbols 및 경로·깊이·언어·최대 노드 필터
+- 아키텍처·ERD 탐색과 최대 노드 필터
 - 파일 선택 기반 심볼, 분석 전체 파일·심볼 검색과 결과 이동·선택 강조
 - 노드 검색·종류 필터, 관계 근거·SHA가 고정된 GitHub 원본 링크
 - 로딩·빈 결과·부분 완료·부분 지원·미지원 사유·잘림·오류 구분
@@ -71,6 +71,12 @@ $env:VITE_API_PROXY_TARGET='http://127.0.0.1:18080'
 pnpm dev:backend --port 15173 --strictPort
 ```
 
-검증 서버의 기본 모드는 HEAD 분석·목록 cursor 미지원·진행 중 빈 통계 응답입니다. 향후 SHA·페이지네이션 지원 모드는 터미널 1에서 `$env:FIXTURE_API_CONTRACT='planned'`를 설정한 뒤 서버를 실행합니다. 검증 후에는 제공받은 실제 서버 주소로 프록시를 변경합니다.
+검증 서버의 기본 모드는 지정 SHA, cursor 페이지네이션, 5종 다이어그램을 제공합니다. 이전 계약을 검증하려면 터미널 1에서 `$env:FIXTURE_API_CONTRACT='legacy'`를 설정한 뒤 서버를 실행합니다.
+
+큰 ERD의 잘림과 최대 노드 조절은 검증 서버를 띄운 뒤 PowerShell에서 아래 명령으로 확인합니다. ERD를 열고 그래프 범위·필터에서 최대 노드를 300으로 설정하면 기본 한도에서 제외된 테이블이 표시됩니다.
+
+```powershell
+Invoke-RestMethod 'http://127.0.0.1:18080/__fixture?mode=large-erd'
+```
 
 검증 기록과 실제 서버에서 남은 항목은 [INTEGRATION_CHECKLIST.md](INTEGRATION_CHECKLIST.md)에 있습니다.
