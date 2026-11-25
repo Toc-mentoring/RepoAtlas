@@ -1,16 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Blocks,
   ChevronDown,
   ChevronRight,
   FileCode2,
   Folder,
   FolderOpen,
   Search,
-  Table2,
 } from "lucide-react";
 import type { DiagramNode, GraphDTO } from "../../api/types";
-import { nodeMatches, type SchemaIndex } from "./SpecialDiagram";
 
 type Item = {
   key: string;
@@ -34,19 +31,7 @@ function label(type: string) {
 }
 
 // Folder paths provide structure even when a dependency graph contains only file nodes.
-function buildTree(graph: GraphDTO, schema?: SchemaIndex): Item[] {
-  if (graph.type === "architecture" || schema) {
-    const item = (node: DiagramNode): Item => ({
-      key: `node:${node.id}`,
-      label: node.label,
-      node,
-      children: schema?.columnsByTable.get(node.id)?.map(item) ?? [],
-    });
-    return graph.nodes
-      .filter((node) => !schema?.tableByColumn.has(node.id))
-      .sort((a, b) => a.label.localeCompare(b.label))
-      .map(item);
-  }
+function buildTree(graph: GraphDTO): Item[] {
   const directories = new Map<string, Item>();
   const roots: Item[] = [];
   const entries = new Map<string, Item>();
@@ -132,21 +117,14 @@ export function NodeExplorer({
   search,
   onSearch,
   onSelect,
-  schema,
 }: {
   graph: GraphDTO;
   selected: string | null;
   search: string;
   onSearch: (value: string) => void;
   onSelect: (id: string) => void;
-  schema?: SchemaIndex;
 }) {
-  const tree = useMemo(() => buildTree(graph, schema), [graph, schema]);
-  const searchLabel = schema
-    ? "테이블·컬럼 검색"
-    : graph.type === "architecture"
-      ? "구성 요소 검색"
-      : "노드 검색";
+  const tree = useMemo(() => buildTree(graph), [graph]);
   const types = useMemo(
     () => Array.from(new Set(graph.nodes.map((n) => n.type))).sort(),
     [graph],
@@ -171,7 +149,10 @@ export function NodeExplorer({
   const matches = (item: Item) =>
     !!item.node &&
     (category === "all" || item.node.type === category) &&
-    nodeMatches(item.node, query);
+    (!query ||
+      `${item.node.label} ${item.node.data.path ?? ""}`
+        .toLowerCase()
+        .includes(query));
   const containsMatch = (item: Item): boolean =>
     matches(item) || item.children.some(containsMatch);
   const filterActive = !!query || category !== "all";
@@ -214,14 +195,9 @@ export function NodeExplorer({
               className="tree-label"
               type="button"
               onClick={() => onSelect(item.node!.id)}
-              aria-pressed={selected === item.node.id}
               title={item.node.data.path ?? item.label}
             >
-              {item.node.type === "table" ? (
-                <Table2 size={15} />
-              ) : graph.type === "architecture" ? (
-                <Blocks size={15} />
-              ) : branch ? (
+              {branch ? (
                 open ? (
                   <FolderOpen size={15} />
                 ) : (
@@ -248,44 +224,32 @@ export function NodeExplorer({
   return (
     <>
       <div className="panel-title">
-        {schema
-          ? "테이블"
-          : graph.type === "architecture"
-            ? "구성 요소"
-            : "탐색기"}
-        <span>
-          {schema
-            ? graph.nodes.filter((node) => node.type === "table").length
-            : graph.nodes.length}
-          개
-        </span>
+        탐색기 <span>{graph.nodes.length}개</span>
       </div>
       <div className="search">
         <Search size={15} />
         <input
-          aria-label={searchLabel}
-          placeholder={searchLabel}
+          aria-label="노드 검색"
+          placeholder="노드 검색"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
         />
       </div>
-      {graph.type !== "architecture" && (
-        <label className="explorer-filter">
-          종류
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            aria-label="노드 종류"
-          >
-            <option value="all">전체</option>
-            {types.map((type) => (
-              <option key={type} value={type}>
-                {label(type)}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
+      <label className="explorer-filter">
+        종류
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          aria-label="노드 종류"
+        >
+          <option value="all">전체</option>
+          {types.map((type) => (
+            <option key={type} value={type}>
+              {label(type)}
+            </option>
+          ))}
+        </select>
+      </label>
       <div className="explorer-tree">
         {tree.some((item) => !filterActive || containsMatch(item)) ? (
           tree.map((item) => renderItem(item, 0))
