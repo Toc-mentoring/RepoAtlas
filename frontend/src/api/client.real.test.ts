@@ -196,3 +196,176 @@ it("존재하지 않는 노드를 연결하는 잘못된 그래프를 거부한�
     error: { code: "INVALID_RESPONSE" },
   });
 });
+
+it.each([
+  ["directory", "dir:1", "directory", "file:2", "file"],
+  ["symbols", "file:2", "file", "symbol:3", "function"],
+] as const)(
+  "%s에서 별도 근거가 없는 포함 관계를 읽는다",
+  async (type, source, sourceType, target, targetType) => {
+    const graph = {
+      diagram_id: "g",
+      run_id: "r",
+      type,
+      availability: "available",
+      nodes: [
+        { id: source, type: sourceType, label: source, data: {} },
+        { id: target, type: targetType, label: target, data: {} },
+      ],
+      edges: [{ id: "e", type: "contains", source, target, data: {} }],
+      warnings: [],
+      truncated: false,
+      has_more: false,
+      unresolved_references: 0,
+    };
+    fetchMock
+      .mockResolvedValueOnce(reply(graph, 201))
+      .mockResolvedValueOnce(reply(graph));
+    await expect(api.createDiagram("r", type, {})).resolves.toEqual(graph);
+    await expect(api.getDiagram("g")).resolves.toEqual(graph);
+  },
+);
+
+it("ERD에서 컬럼 포함 관계와 원본 경로가 없는 외래 키 근거를 읽는다", async () => {
+  const graph = {
+    diagram_id: "g",
+    run_id: "r",
+    type: "erd",
+    availability: "available",
+    nodes: [
+      {
+        id: "table:1",
+        type: "table",
+        label: "tasks",
+        data: { schema: "public", path: null, github_url: null },
+      },
+      {
+        id: "column:2",
+        type: "column",
+        label: "id",
+        data: { data_type: "bigint", is_primary: true },
+      },
+      {
+        id: "column:3",
+        type: "column",
+        label: "parent_id",
+        data: { data_type: "bigint" },
+      },
+    ],
+    edges: [
+      {
+        id: "contains:2",
+        type: "contains",
+        source: "table:1",
+        target: "column:2",
+        data: {},
+      },
+      {
+        id: "contains:3",
+        type: "contains",
+        source: "table:1",
+        target: "column:3",
+        data: {},
+      },
+      {
+        id: "foreign_key:1",
+        type: "foreign_key",
+        source: "column:3",
+        target: "column:2",
+        data: {
+          certainty: "confirmed",
+          evidence: [{ path: null, github_url: null, basis: "sql_ddl" }],
+        },
+      },
+    ],
+    warnings: [],
+    truncated: false,
+    has_more: false,
+    unresolved_references: 0,
+  };
+  fetchMock.mockResolvedValue(reply(graph));
+  await expect(api.getDiagram("g")).resolves.toEqual(graph);
+});
+
+const composeDependency = {
+  id: "depends_on:api:db",
+  type: "architecture_dependency",
+  source: "service:api",
+  target: "service:db",
+  data: {
+    certainty: "confirmed",
+    evidence: [{ path: "stack-a/compose.yml", basis: "config_file" }],
+  },
+};
+const architectureGraph = {
+  diagram_id: "g",
+  run_id: "r",
+  type: "architecture",
+  availability: "available",
+  nodes: ["api", "db", "worker"].map((service) => ({
+    id: `service:${service}`,
+    label: service,
+    type: "component",
+    data: {},
+  })),
+  warnings: [],
+  truncated: false,
+  has_more: false,
+  unresolved_references: 0,
+};
+
+it("두 Compose 파일이 제공한 동일 관계의 근거를 생성과 재조회에서 모두 보존한다", async () => {
+  const secondEvidence = { path: "stack-b/compose.yml", basis: "config_file" };
+  const response = {
+    ...architectureGraph,
+    edges: [
+      composeDependency,
+      {
+        ...composeDependency,
+        data: { ...composeDependency.data, evidence: [secondEvidence] },
+      },
+    ],
+  };
+  const expected = {
+    ...architectureGraph,
+    edges: [
+      {
+        ...composeDependency,
+        data: {
+          ...composeDependency.data,
+          evidence: [...composeDependency.data.evidence, secondEvidence],
+        },
+      },
+    ],
+  };
+  fetchMock
+    .mockResolvedValueOnce(reply(response, 201))
+    .mockResolvedValueOnce(reply(response));
+  await expect(api.createDiagram("r", "architecture", {})).resolves.toEqual(
+    expected,
+  );
+  await expect(api.getDiagram("g")).resolves.toEqual(expected);
+});
+
+it.each([
+  [
+    "architecture",
+    composeDependency,
+    { ...composeDependency, target: "service:worker" },
+  ],
+  [
+    "dependency",
+    { ...composeDependency, type: "imports" },
+    { ...composeDependency, type: "imports" },
+  ],
+])(
+  "%s에서 동일한 Compose 관계 이외의 중복 ID는 거부한다",
+  async (type, first, second) => {
+    fetchMock.mockResolvedValue(
+      reply({ ...architectureGraph, type, edges: [first, second] }),
+    );
+    await expect(api.getDiagram("g")).rejects.toMatchObject({
+      error: { code: "INVALID_RESPONSE" },
+    });
+  },
+);

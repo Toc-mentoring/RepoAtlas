@@ -1,7 +1,13 @@
 import { mockApi, type Analysis, type Repository } from "./mock";
 import { ApiError } from "./errors";
 import * as graph from "./mockGraph";
-import type { Catalog, DiagramOptions, DiagramType, GraphDTO } from "./types";
+import type {
+  Catalog,
+  DiagramEdge,
+  DiagramOptions,
+  DiagramType,
+  GraphDTO,
+} from "./types";
 import { readCapabilities, type BackendCapabilities } from "./capabilities";
 export const isMock = import.meta.env.VITE_API_MODE !== "real";
 const base = (import.meta.env.VITE_API_BASE_URL || "/api/v1").replace(
@@ -171,8 +177,9 @@ const analysisShape = (v: any) =>
   ].every((k) => v.stats[k] === undefined || typeof v.stats[k] === "number") &&
   Array.isArray(v.warnings) &&
   v.warnings.every((w: unknown) => typeof w === "string");
-const graphShape = (v: any) => {
+function readGraph(v: unknown): GraphDTO {
   if (
+    !object(v) ||
     typeof v.diagram_id !== "string" ||
     typeof v.run_id !== "string" ||
     !["directory", "dependency", "symbols", "architecture", "erd"].includes(
@@ -188,7 +195,7 @@ const graphShape = (v: any) => {
     typeof v.truncated !== "boolean" ||
     typeof v.has_more !== "boolean"
   )
-    return false;
+    throw invalid();
   const ids = new Set<string>();
   for (const n of v.nodes) {
     if (
@@ -202,31 +209,63 @@ const graphShape = (v: any) => {
       ) ||
       ids.has(n.id)
     )
-      return false;
+      throw invalid();
     ids.add(n.id);
   }
-  const edgeIds = new Set<string>();
-  return v.edges.every((e: any) => {
+  const edges = new Map<string, DiagramEdge>();
+  for (const e of v.edges) {
     if (
       !object(e) ||
       typeof e.id !== "string" ||
-      edgeIds.has(e.id) ||
+      typeof e.type !== "string" ||
       !ids.has(e.source) ||
       !ids.has(e.target) ||
-      !object(e.data) ||
-      !Array.isArray(e.data.evidence) ||
-      !e.data.evidence.every(
-        (ev: unknown) =>
-          object(ev) &&
-          typeof ev.path === "string" &&
-          typeof ev.basis === "string",
-      )
+      !object(e.data)
     )
-      return false;
-    edgeIds.add(e.id);
-    return true;
-  });
-};
+      throw invalid();
+    const evidence = e.data.evidence;
+    const containment = e.type === "contains";
+    const schemaReference = v.type === "erd" && e.type === "foreign_key";
+    if (
+      !(containment && evidence === undefined) &&
+      (!Array.isArray(evidence) ||
+        !evidence.every(
+          (ev: unknown) =>
+            object(ev) &&
+            (typeof ev.path === "string" ||
+              (schemaReference && ev.path === null)) &&
+            typeof ev.basis === "string",
+        ))
+    )
+      throw invalid();
+
+    const previous = edges.get(e.id);
+    if (!previous) {
+      edges.set(e.id, e as DiagramEdge);
+      continue;
+    }
+
+    // Different Compose files can contribute evidence for the same dependency.
+    if (
+      v.type !== "architecture" ||
+      e.type !== "architecture_dependency" ||
+      previous.type !== e.type ||
+      previous.source !== e.source ||
+      previous.target !== e.target ||
+      previous.data.certainty !== e.data.certainty
+    )
+      throw invalid();
+
+    edges.set(e.id, {
+      ...previous,
+      data: {
+        ...previous.data,
+        evidence: [...(previous.data.evidence ?? []), ...evidence],
+      },
+    });
+  }
+  return { ...(v as GraphDTO), edges: [...edges.values()] };
+}
 function page<T>(items: T[], options: PageOptions): List<T> {
   const offset = Number(options.cursor || 0),
     limit = options.limit || 20;
@@ -467,20 +506,21 @@ export const api = {
                 (i.reason === null || typeof i.reason === "string"),
             ),
         ),
-  createDiagram: (
+  createDiagram: async (
     id: string,
     type: DiagramType,
     options: DiagramOptions,
   ): Promise<GraphDTO> =>
     isMock
       ? graph.createGraph(id, type, options)
-      : request(
-          `/analyses/${encodeURIComponent(id)}/diagrams`,
-          { method: "POST", body: JSON.stringify({ type, options }) },
-          graphShape,
+      : readGraph(
+          await request(
+            `/analyses/${encodeURIComponent(id)}/diagrams`,
+            { method: "POST", body: JSON.stringify({ type, options }) },
+          ),
         ),
-  getDiagram: (id: string): Promise<GraphDTO> =>
+  getDiagram: async (id: string): Promise<GraphDTO> =>
     isMock
       ? graph.getGraph(id)
-      : request(`/diagrams/${encodeURIComponent(id)}`, undefined, graphShape),
+      : readGraph(await request(`/diagrams/${encodeURIComponent(id)}`)),
 };

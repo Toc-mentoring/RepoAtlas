@@ -1,4 +1,5 @@
 import { mockApi, ApiError } from "./mock";
+import { architectureExample, erdExample } from "./mockSpecialDiagrams";
 import type { Catalog, DiagramOptions, DiagramType, GraphDTO } from "./types";
 const key = "repoatlas.mock.graphs.v1";
 const delay = () => new Promise<void>((r) => setTimeout(r, 250));
@@ -21,7 +22,7 @@ async function ready(runId: string) {
   return run;
 }
 export async function catalog(runId: string): Promise<Catalog> {
-  await ready(runId);
+  const run = await ready(runId);
   return {
     run_id: runId,
     items: [
@@ -30,13 +31,17 @@ export async function catalog(runId: string): Promise<Catalog> {
       { type: "symbols", availability: "available", reason: null },
       {
         type: "architecture",
-        availability: "unsupported",
-        reason: "예시 데이터에 아키텍처 근거가 없습니다.",
+        availability: run.status === "partial" ? "partial" : "available",
+        reason:
+          run.status === "partial" ? "일부 설정 파일만 분석했습니다." : null,
       },
       {
         type: "erd",
-        availability: "unsupported",
-        reason: "예시 데이터에 SQL DDL이 없습니다.",
+        availability: run.status === "partial" ? "unsupported" : "available",
+        reason:
+          run.status === "partial"
+            ? "이 예시에는 해석 가능한 SQL DDL이 없습니다."
+            : null,
       },
     ],
   };
@@ -59,7 +64,7 @@ export async function createGraph(
   options: DiagramOptions,
 ): Promise<GraphDTO> {
   const run = await ready(runId);
-  if (type === "architecture" || type === "erd")
+  if (type === "erd" && run.status === "partial")
     return fail(
       409,
       "DIAGRAM_UNSUPPORTED",
@@ -162,7 +167,7 @@ export async function createGraph(
       e("file:2", "file:4", "imports"),
       e("file:2", "file:5", "imports"),
     ].filter((x) => ids.has(x.source) && ids.has(x.target));
-  } else {
+  } else if (type === "symbols") {
     const file = sample.find((f) => f.id === options.file_id)!;
     nodes = [
       n(`file:${file.id}`, "file", file.name, {
@@ -180,6 +185,9 @@ export async function createGraph(
       ),
     ];
     edges = [e(nodes[0].id, nodes[1].id, "declares")];
+  } else {
+    ({ nodes, edges } =
+      type === "architecture" ? architectureExample : erdExample);
   }
   const limit = options.max_nodes ?? 150;
   const truncated = nodes.length > limit;
@@ -192,7 +200,10 @@ export async function createGraph(
     diagram_id: crypto.randomUUID(),
     run_id: runId,
     type,
-    availability: "available",
+    availability:
+      type === "architecture" && run.status === "partial"
+        ? "partial"
+        : "available",
     truncated,
     has_more: truncated,
     nodes,
