@@ -30,15 +30,8 @@ export type DiagramEdge = {
   target: string;
   type: string;
   data: {
-    certainty?: "confirmed" | "inferred";
-    evidence?: {
-      path: string | null;
-      line?: number | null;
-      basis: string;
-      github_url?: string | null;
-    }[];
-    constraint_name?: string;
-    ordinal_position?: number;
+    certainty: "confirmed" | "inferred";
+    evidence: { path: string; line?: number; basis: string }[];
   };
 };
 export type GraphDTO = {

@@ -2,14 +2,7 @@
 // Run: node tests/contract-server.mjs (127.0.0.1:18080).
 import http from "node:http";
 import { randomUUID } from "node:crypto";
-const legacy = process.env.FIXTURE_API_CONTRACT === "legacy";
-const diagramTypes = [
-  "directory",
-  "dependency",
-  "symbols",
-  "architecture",
-  "erd",
-];
+const planned = process.env.FIXTURE_API_CONTRACT === "planned";
 const sha = "02604366b003f629d934eee1b515ba8de4e97771";
 const repoId = "11111111-1111-4111-8111-111111111111";
 const runId = "22222222-2222-4222-8222-222222222222";
@@ -30,7 +23,7 @@ const stats = {
   symbols: 341,
   resolved_imports: 340,
   unresolved_imports: 1,
-  tables: legacy ? 0 : 2,
+  tables: 0,
 };
 const runs = new Map([
   [
@@ -103,7 +96,6 @@ const sourceNodes = [
   ...files,
 ];
 const graphs = new Map();
-const graphIds = new Map();
 const polls = new Map();
 let mode = "normal";
 function page(items, url) {
@@ -117,87 +109,23 @@ function page(items, url) {
       offset + limit < items.length ? `fixture:${offset + limit}` : null,
   };
 }
-const edge = (s, t, type, data = {}) => ({
+const edge = (s, t, type) => ({
   id: `${type}:${s}:${t}`,
   source: s,
   target: t,
   type,
-  data,
+  data: {
+    certainty: "confirmed",
+    evidence: [
+      {
+        path: "worker/analyzer.py",
+        line: 1,
+        basis: "frontend_contract_fixture",
+      },
+    ],
+  },
 });
-function buildArchitecture(link) {
-  const path = "infra/docker-compose.yml";
-  const evidence = [
-    { path, line: null, basis: "config_file", github_url: link(path) },
-  ];
-  const data = { certainty: "confirmed", evidence };
-  const nodes = ["web", "api", "db"].map((label) => ({
-    id: `service:${label}`,
-    type: "component",
-    label,
-    data: { kind: "service", path, github_url: link(path), ...data },
-  }));
-  const edges = [
-    edge("service:web", "service:api", "architecture_dependency", data),
-    edge("service:api", "service:db", "architecture_dependency", data),
-  ];
-  return { nodes, edges };
-}
-function buildErd(max, large) {
-  const users = ["id", "email"];
-  if (large)
-    users.push(...Array.from({ length: 149 }, (_, i) => `field_${i + 1}`));
-  const tables = [
-    { id: 1, label: "users", columns: users },
-    { id: 2, label: "projects", columns: ["id", "owner_id", "name"] },
-  ];
-  const nodes = [];
-  const edges = [];
-  let truncated = false;
-  for (const { id, label, columns } of tables) {
-    if (nodes.length + 1 + columns.length > max) {
-      truncated = true;
-      break;
-    }
-    const tableId = `table:${id}`;
-    nodes.push({
-      id: tableId,
-      type: "table",
-      label,
-      data: { schema: "public", name: label, path: null, github_url: null },
-    });
-    columns.forEach((column, index) => {
-      const columnId = `column:${id * 1000 + index}`;
-      nodes.push({
-        id: columnId,
-        type: "column",
-        label: column,
-        data: {
-          data_type:
-            column === "id" || column.endsWith("_id") ? "bigint" : "text",
-          is_primary: index === 0,
-          is_nullable: index > 0,
-          ordinal_position: index + 1,
-        },
-      });
-      edges.push(edge(tableId, columnId, "contains"));
-    });
-  }
-  if (nodes.some((node) => node.id === "column:2001")) {
-    edges.push(
-      edge("column:2001", "column:1000", "foreign_key", {
-        certainty: "confirmed",
-        constraint_name: "projects_owner_id_fkey",
-        ordinal_position: 1,
-        evidence: [{ path: null, basis: "sql_ddl", github_url: null }],
-      }),
-    );
-  }
-  return { nodes, edges, truncated };
-}
 function build(run, type, options) {
-  const max = options.max_nodes ?? 150;
-  if (!Number.isInteger(max) || max < 20 || max > 300)
-    throw Error("max_nodes는 20~300 사이의 정수여야 합니다.");
   const root = options.root_path || ".";
   const within = (n) =>
     root === "." || n.path === root || n.path.startsWith(root + "/");
@@ -211,13 +139,7 @@ function build(run, type, options) {
   });
   let nodes = [],
     edges = [];
-  let truncated = false;
-  if (type === "architecture" || type === "erd") {
-    if (Object.keys(options).some((key) => key !== "max_nodes"))
-      throw Error("이 다이어그램은 max_nodes 옵션을 지원합니다.");
-    if (type === "architecture") ({ nodes, edges } = buildArchitecture(link));
-    else ({ nodes, edges, truncated } = buildErd(max, mode === "large-erd"));
-  } else if (type === "symbols") {
+  if (type === "symbols") {
     const file = files.find((f) => f.id === options.file_id);
     if (!file) throw Error("파일을 선택해 주세요.");
     nodes = [
@@ -229,7 +151,7 @@ function build(run, type, options) {
         data: { path: file.path, line: 1, github_url: link(file.path) + "#L1" },
       },
     ];
-    edges = [edge(nodes[0].id, nodes[1].id, "contains")];
+    edges = [edge(nodes[0].id, nodes[1].id, "declares")];
   } else {
     const subset = (type === "directory" ? sourceNodes : files)
       .filter(within)
@@ -254,16 +176,10 @@ function build(run, type, options) {
               ),
             )
             .filter((e) => ids.has(e.source) && ids.has(e.target))
-        : nodes.slice(1).map((n) =>
-            edge(nodes[0].id, n.id, "imports", {
-              certainty: "confirmed",
-              evidence: [
-                { path: nodes[0].data.path, line: 1, basis: "static_import" },
-              ],
-            }),
-          );
+        : nodes.slice(1).map((n) => edge(nodes[0].id, n.id, "imports"));
   }
-  truncated ||= nodes.length > max;
+  const max = options.max_nodes || 150,
+    truncated = nodes.length > max;
   nodes = nodes.slice(0, max);
   const ids = new Set(nodes.map((n) => n.id));
   edges = edges.filter((e) => ids.has(e.source) && ids.has(e.target));
@@ -271,7 +187,7 @@ function build(run, type, options) {
     diagram_id: randomUUID(),
     run_id: run.id,
     type,
-    availability: run.status === "partial" ? "partial" : "available",
+    availability: type === "dependency" ? "partial" : "available",
     truncated,
     has_more: truncated,
     nodes,
@@ -301,17 +217,16 @@ const server = http.createServer(async (req, res) => {
   }
   if (mode === "unavailable")
     return fail(502, "GITHUB_UNAVAILABLE", "검증용 서버 연결 실패");
-  if (p === "/healthz") return send({ status: "ok" });
   if (p === "/openapi.json")
     return send({
       openapi: "3.1.0",
       paths: {
         "/api/v1/repositories": {
-          get: { parameters: legacy ? [] : [{ in: "query", name: "cursor" }] },
+          get: { parameters: planned ? [{ in: "query", name: "cursor" }] : [] },
         },
         "/api/v1/repositories/{repo_id}/analyses": {
-          get: { parameters: legacy ? [] : [{ in: "query", name: "cursor" }] },
-          post: !legacy
+          get: { parameters: planned ? [{ in: "query", name: "cursor" }] : [] },
+          post: planned
             ? {
                 requestBody: {
                   content: {
@@ -332,7 +247,7 @@ const server = http.createServer(async (req, res) => {
     const result = page(repos, url);
     return send({
       ...result,
-      next_cursor: legacy ? null : result.next_cursor,
+      next_cursor: planned ? result.next_cursor : null,
     });
   }
   let body = {};
@@ -360,17 +275,12 @@ const server = http.createServer(async (req, res) => {
       const result = page(history, url);
       return send({
         ...result,
-        next_cursor: legacy ? null : result.next_cursor,
+        next_cursor: planned ? result.next_cursor : null,
       });
     }
-    if (
-      !legacy &&
-      body.commit_sha != null &&
-      (typeof body.commit_sha !== "string" ||
-        !/^[a-f0-9]{40}$/i.test(body.commit_sha))
-    )
+    if (planned && !/^[a-f0-9]{40}$/i.test(body.commit_sha || ""))
       return fail(422, "INVALID_COMMIT_SHA", "SHA를 확인해 주세요.");
-    const requestedSha = legacy ? sha : (body.commit_sha?.toLowerCase() ?? sha);
+    const requestedSha = planned ? body.commit_sha : sha;
     const existing = [...runs.values()].find(
       (r) => r.commit_sha === requestedSha && r.status !== "partial",
     );
@@ -422,15 +332,21 @@ const server = http.createServer(async (req, res) => {
     if (action === "diagram-types")
       return send({
         run_id: run.id,
-        items: diagramTypes.map((type) => {
-          const unsupported =
-            legacy && (type === "architecture" || type === "erd");
-          return {
-            type,
-            availability: unsupported ? "unsupported" : "available",
-            reason: unsupported ? "검증용 미지원 사유" : null,
-          };
-        }),
+        items: [
+          "directory",
+          "dependency",
+          "symbols",
+          "architecture",
+          "erd",
+        ].map((type) => ({
+          type,
+          availability: ["architecture", "erd"].includes(type)
+            ? "unsupported"
+            : "available",
+          reason: ["architecture", "erd"].includes(type)
+            ? "검증용 미지원 사유"
+            : null,
+        })),
       });
     if (action === "nodes")
       return send(
@@ -485,29 +401,11 @@ const server = http.createServer(async (req, res) => {
       return send(page(items, url));
     }
     if (action === "diagrams" && req.method === "POST") {
-      if (!diagramTypes.includes(body.type))
-        return fail(
-          422,
-          "INVALID_FILTER",
-          "지원하지 않는 다이어그램 유형입니다.",
-        );
-      if (legacy && ["architecture", "erd"].includes(body.type))
+      if (["architecture", "erd"].includes(body.type))
         return fail(409, "DIAGRAM_UNSUPPORTED", "이 유형은 지원하지 않습니다.");
       try {
-        const options = { max_nodes: 150, ...body.options };
-        const key = JSON.stringify([
-          run.id,
-          body.type,
-          mode,
-          Object.keys(options)
-            .sort()
-            .map((name) => [name, options[name]]),
-        ]);
-        const cached = graphIds.get(key);
-        if (cached) return send(graphs.get(cached));
-        const g = build(run, body.type, options);
+        const g = build(run, body.type, body.options || {});
         graphs.set(g.diagram_id, g);
-        graphIds.set(key, g.diagram_id);
         return send(g, 201);
       } catch (e) {
         return fail(422, "INVALID_FILTER", e.message);

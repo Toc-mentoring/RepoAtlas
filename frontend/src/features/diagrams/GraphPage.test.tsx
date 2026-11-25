@@ -9,8 +9,6 @@ import {
 } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
-import type { GraphDTO } from "../../api/types";
-import { GraphFilters } from "./GraphFilters";
 import { DiagramChooser } from "./GraphPage";
 vi.mock("../../api/client", () => ({
   isMock: true,
@@ -67,29 +65,3 @@ describe("다이어그램 선택 화면", () => {
     );
   });
 });
-
-it.each(["architecture", "erd"] as const)(
-  "%s의 최대 노드를 다시 요청할 수 있다",
-  (type) => {
-    const apply = vi.fn();
-    const graph: GraphDTO = {
-      diagram_id: "diagram",
-      run_id: "run",
-      type,
-      availability: "available",
-      nodes: [],
-      edges: [],
-      warnings: [],
-      truncated: true,
-      has_more: true,
-      unresolved_references: 0,
-    };
-    render(<GraphFilters graph={graph} pending={false} apply={apply} />);
-    fireEvent.click(screen.getByText("그래프 범위·필터"));
-    fireEvent.change(screen.getByRole("spinbutton", { name: "최대 노드" }), {
-      target: { value: "300" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "필터 적용" }));
-    expect(apply).toHaveBeenCalledWith({ max_nodes: 300 });
-  },
-);

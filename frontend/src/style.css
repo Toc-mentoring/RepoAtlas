@@ -1,6 +1,5 @@
 /* Hallmark · v2.0.0 · redesign: full · scope: app · genre: modern-minimal · theme: console (monochrome by request) · shape: app screen · nav: compact workspace bar · footer: simple status line · signature: repository list and graph explorer */
 /* Hallmark · pre-emit critique: P4 H5 E4 S4 R5 V4 · weakest: execution; labels and focus states were made explicit for dense analysis tasks. */
-/* Hallmark · waive 39b · diagram nodes change size with zoom · graph nodes share the same selection actions as the fixed-size explorer controls */
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+KR:wght@400;500;600;700&display=swap");
 :root {
   color-scheme: dark;
@@ -633,14 +632,11 @@ h3 {
   gap: 8px;
   margin: 16px 12px 8px;
   padding: 0 12px;
-  border: 1px solid var(--muted);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-input);
   color: var(--muted);
   font-size: 13px;
-}
-.search input {
-  min-height: 38px;
 }
 .explorer-filter {
   display: flex;
@@ -655,7 +651,7 @@ h3 {
   min-width: 0;
   min-height: 36px;
   padding: 0 8px;
-  border: 1px solid var(--muted);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-input);
   color: var(--ink);
@@ -783,13 +779,6 @@ h3 {
 }
 .react-flow__controls button:hover {
   background: var(--surface-hover);
-}
-.canvas .react-flow__attribution {
-  background: var(--surface);
-  font-size: 11px;
-}
-.canvas .react-flow__attribution a {
-  color: var(--ink-soft);
 }
 .canvas-foot {
   min-height: 40px;
@@ -1026,7 +1015,7 @@ button:disabled {
 button:focus-visible,
 a:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--text);
   outline-offset: 3px;
 }
 .workspace-tools {
@@ -1139,12 +1128,12 @@ summary {
   right: 10%;
   padding: 16px;
   text-align: center;
-  background: var(--surface);
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
 }
 .file-node.selected {
-  outline: 2px solid var(--focus);
+  outline: 2px solid var(--text);
 }
 .path,
 .heading p,
@@ -1187,240 +1176,4 @@ summary {
   footer {
     flex-wrap: wrap;
   }
-}
-
-/* Architecture and schema diagram surfaces share the application's theme tokens. */
-.diagram-legend {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 4px 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-  color: var(--muted);
-}
-.diagram-legend li {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-.diagram-legend li > span {
-  width: 18px;
-  border-top: 2px solid var(--graph-edge);
-}
-.diagram-legend li > .inferred {
-  border-top-style: dashed;
-}
-.diagram-legend abbr {
-  color: var(--ink-soft);
-  font-weight: 600;
-  text-decoration: none;
-}
-.react-flow__node.diagram-node {
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--ink);
-}
-.diagram-node.selected {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
-}
-.diagram-node.dim,
-.schema-node-row button.dim {
-  opacity: 0.42;
-}
-.diagram-node button {
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-}
-.diagram-node button:focus-visible {
-  outline-offset: -3px;
-}
-.diagram-node button:active {
-  transform: none;
-}
-.architecture-node-button {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-height: 70px;
-  padding: 12px 16px;
-}
-.architecture-node-button > span,
-.schema-node-head strong,
-.schema-node-head small,
-.schema-node-row button > span,
-.schema-node-row small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.architecture-node-button strong,
-.architecture-node-button small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.architecture-node-button svg,
-.schema-node-head svg {
-  flex: none;
-  color: var(--ink-soft);
-}
-.architecture-node-button small,
-.schema-node-head small,
-.schema-node-row small {
-  color: var(--muted);
-  font-size: 12px;
-}
-.schema-node-head,
-.schema-node-row {
-  position: relative;
-}
-.schema-node-head {
-  border-radius: 7px 7px 0 0;
-  background: var(--surface-raised);
-}
-.schema-node-head button {
-  display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  height: 46px;
-  padding: 0 12px;
-  font-size: 15px;
-}
-.schema-node-head small {
-  max-width: 78px;
-}
-.schema-node-row {
-  border-top: 1px solid var(--border);
-}
-.schema-node-row button {
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) minmax(0, auto);
-  align-items: center;
-  gap: 4px;
-  height: 36px;
-  padding: 0 12px;
-  font-size: 14px;
-  font-family: var(--font-code);
-}
-.schema-node-row small {
-  max-width: 86px;
-}
-.diagram-node .react-flow__handle {
-  visibility: hidden;
-}
-.schema-node-row button[aria-pressed="true"],
-.diagram-node button:hover {
-  background: var(--surface-hover);
-}
-.column-keys {
-  color: var(--ink-soft);
-  font-family: var(--font-body);
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.diagram-fields {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 4px 12px;
-  align-items: baseline;
-  margin: 12px 0 0;
-  font-size: 13px;
-}
-.diagram-fields:empty {
-  display: none;
-}
-.diagram-fields dt {
-  color: var(--muted);
-}
-.diagram-fields dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-.detail-column-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.detail-column-list button {
-  display: grid;
-  width: 100%;
-  min-height: 36px;
-  grid-template-columns: 35px minmax(0, 1fr) minmax(0, auto);
-  align-items: center;
-  gap: 4px;
-  padding: 4px 0;
-  border: 0;
-  border-bottom: 1px solid var(--border);
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-  font-family: var(--font-code);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.detail-column-list button small {
-  max-width: 76px;
-  color: var(--muted);
-}
-.detail-column-list button:hover {
-  background: var(--surface-hover);
-}
-.diagram-relation {
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.diagram-relation > strong {
-  font-family: var(--font-code);
-  color: var(--ink-soft);
-}
-.diagram-relation-item + .diagram-relation-item {
-  margin-top: 8px;
-}
-.diagram-relation-ends {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 8px;
-  margin: 4px 0;
-}
-.diagram-text-button {
-  min-width: 0;
-  min-height: 32px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--ink);
-  text-align: left;
-  overflow-wrap: anywhere;
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.diagram-text-button:hover {
-  color: var(--muted);
-}
-.diagram-evidence small {
-  display: block;
-  color: var(--muted);
-}
-.diagram-evidence a {
-  text-decoration: underline;
-  text-underline-offset: 3px;
-}
-.diagram-evidence svg {
-  vertical-align: middle;
 }
