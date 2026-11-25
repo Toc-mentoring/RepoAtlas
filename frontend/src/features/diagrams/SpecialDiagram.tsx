@@ -330,7 +330,6 @@ export function SpecialDetails({
   const groups = new Map<string, DiagramEdge[]>();
   for (const edge of graph.edges) {
     if (schema && edge.type !== "foreign_key") continue;
-    if (!relatesToNode(edge.source) && !relatesToNode(edge.target)) continue;
     const constraint = edge.data.constraint_name;
     const key =
       schema && typeof constraint === "string" && constraint
@@ -340,6 +339,11 @@ export function SpecialDetails({
     group.push(edge);
     groups.set(key, group);
   }
+  const relatedGroups = [...groups].filter(([, group]) =>
+    group.some(
+      (edge) => relatesToNode(edge.source) || relatesToNode(edge.target),
+    ),
+  );
   const kind = schema
     ? node.type === "table"
       ? "테이블"
@@ -441,10 +445,10 @@ export function SpecialDetails({
         </>
       )}
       <h3>{schema ? "외래 키 관계" : "연결된 관계"}</h3>
-      {groups.size === 0 && (
+      {relatedGroups.length === 0 && (
         <p className="detail-note">연결된 관계가 없습니다.</p>
       )}
-      {[...groups.entries()].map(([key, group]) => (
+      {relatedGroups.map(([key, group]) => (
         <div className="diagram-relation" key={key}>
           {schema && group[0].data.constraint_name && (
             <strong>{group[0].data.constraint_name}</strong>
