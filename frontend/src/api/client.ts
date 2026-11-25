@@ -213,14 +213,22 @@ const graphShape = (v: any) => {
       edgeIds.has(e.id) ||
       !ids.has(e.source) ||
       !ids.has(e.target) ||
-      !object(e.data) ||
-      !Array.isArray(e.data.evidence) ||
-      !e.data.evidence.every(
-        (ev: unknown) =>
-          object(ev) &&
-          typeof ev.path === "string" &&
-          typeof ev.basis === "string",
-      )
+      !object(e.data)
+    )
+      return false;
+    const evidence = e.data.evidence;
+    const containment = e.type === "contains";
+    const schemaReference = v.type === "erd" && e.type === "foreign_key";
+    if (
+      !(containment && evidence === undefined) &&
+      (!Array.isArray(evidence) ||
+        !evidence.every(
+          (ev: unknown) =>
+            object(ev) &&
+            (typeof ev.path === "string" ||
+              (schemaReference && ev.path === null)) &&
+            typeof ev.basis === "string",
+        ))
     )
       return false;
     edgeIds.add(e.id);
